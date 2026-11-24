@@ -25,8 +25,11 @@ class EdgeSnapTest {
     @Test fun aFlingWinsOverPosition() {
         assertEquals(Side.RIGHT, EdgeSnap.sideFor(100, w, portrait, 2500f))
         assertEquals(Side.LEFT, EdgeSnap.sideFor(800, w, portrait, -1300f))
+        // A light flick counts: 700 px/s is the line.
+        assertEquals(Side.RIGHT, EdgeSnap.sideFor(100, w, portrait, 700f))
+        assertEquals(Side.LEFT, EdgeSnap.sideFor(800, w, portrait, -700f))
         // A slow drift doesn't count as a fling.
-        assertEquals(Side.LEFT, EdgeSnap.sideFor(100, w, portrait, 900f))
+        assertEquals(Side.LEFT, EdgeSnap.sideFor(100, w, portrait, 400f))
     }
 
     @Test fun dockedPositionsKeepClearOfBarsAndCutout() {

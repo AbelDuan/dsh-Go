@@ -51,8 +51,8 @@ data class BubblePlacement(val pos: WindowPos, val w: Int, val h: Int, val tailA
  * usable height, so it survives rotation and a different screen size.
  */
 object EdgeSnap {
-    /** A release faster than this (px/s) throws the pet to the side it was thrown towards. */
-    const val FLING_PX_PER_S = 1200f
+    /** A release faster than this (px/s) throws the pet to the side it was thrown towards: a light flick is enough. */
+    const val FLING_PX_PER_S = 700f
 
     fun minX(area: SafeArea, margin: Int) = area.left + margin
     fun maxX(area: SafeArea, w: Int, margin: Int) = maxOf(minX(area, margin), area.screenW - area.right - margin - w)
