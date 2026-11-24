@@ -281,18 +281,23 @@ class _ComposerStripSlotState extends ConsumerState<ComposerStripSlot> with Widg
         child: PetPerch(
           kind: PerchKind.plugin,
           active: widget.visible && shown != null,
-          child: AnimatedSwitcher(
-            duration: AppMotion.of(context, AppMotion.standard),
-            child: ComposerStrip(
-              key: ValueKey('${last.strip.package}#${last.strip.id}'),
-              package: package,
-              title: ref.watch(nativePluginTitleProvider(package)),
-              icon: last.icon ?? plugin?.icon,
-              avatar: bundle?.meta?.icon,
-              tone: last.tone,
-              text: last.text,
-              onTap: opens || last.strip.tappable ? () => _tap(last.strip) : null,
-            ),
+          // Swap the line outright: no cross-fade between plugins.
+          //
+          // With two lines taking turns, an AnimatedSwitcher keeps the
+          // outgoing one in the tree and fades the incoming one over it, so
+          // for the length of the animation two half-transparent pills are
+          // stacked in the same place and the doubled glass reads as a grey
+          // flash along the strip's top edge. The line is one short sentence;
+          // the eye expects it to be replaced, not blended.
+          child: ComposerStrip(
+            key: ValueKey('${last.strip.package}#${last.strip.id}'),
+            package: package,
+            title: ref.watch(nativePluginTitleProvider(package)),
+            icon: last.icon ?? plugin?.icon,
+            avatar: bundle?.meta?.icon,
+            tone: last.tone,
+            text: last.text,
+            onTap: opens || last.strip.tappable ? () => _tap(last.strip) : null,
           ),
         ),
       );

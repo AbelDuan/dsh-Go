@@ -1,0 +1,39 @@
+name: Sync upstream into custom
+
+# Pulls ccch1mneyyy/dsh-Go's main into `custom` (the branch that carries the
+# local fixes), so an upstream release only needs a merge, not a re-patch.
+# Run it after "Sync fork" on main, or let the daily schedule do it.
+# A conflict fails the job and leaves `custom` untouched; resolve it locally.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 3 * * *'
+
+permissions:
+  contents: write
+
+jobs:
+  merge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: custom
+          fetch-depth: 0
+
+      - name: Merge upstream main
+        run: |
+          set -euo pipefail
+          git config user.name "dsh-go sync"
+          git config user.email "dsh-go-sync@users.noreply.github.com"
+          git remote add upstream https://github.com/ccch1mneyyy/dsh-Go.git
+          git fetch --no-tags upstream main
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "custom already contains upstream main"
+            exit 0
+          fi
+          echo "merging $(git rev-parse --short upstream/main) into custom"
+          git merge --no-edit upstream/main
+          git push origin HEAD:custom
