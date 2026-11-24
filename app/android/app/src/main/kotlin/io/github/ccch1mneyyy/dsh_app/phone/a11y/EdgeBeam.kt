@@ -433,7 +433,10 @@ half4 main(float2 xy) {
         // min of the two edge distances) instead of the L an unrounded corner would give, whose
         // diagonal is the farthest point from the rim and so reads as a crease running out of the
         // corner. The vertex still comes out as the brightest point rather than the farthest.
-        float soft = width;
+        // 0.7 of the band's width: how far the corner keeps the rim's edge value before the falloff
+        // starts. A full width filled 26.7 px along the diagonal of a 38.5 px band, 0.7 keeps it at
+        // 18.7 px and still leaves no crease (the cross-section's second difference stays under 4).
+        float soft = width * 0.7;
         float dx = min(xy.x, size.x - xy.x);
         float dy = min(xy.y, size.y - xy.y);
         inset = max(min(dx, dy) - soft * log(1.0 + exp(-abs(dx - dy) / soft)), 0.0);
