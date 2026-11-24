@@ -428,28 +428,31 @@ float perimeterAt(float2 p, float2 h, float4 rr) {
     float abl = 1.5707963 * rbl;
     float s4 = max(2.0 * h.y - rbl - rtl, 0.0);
     float atl = 1.5707963 * rtl;
+    // Each edge's own span of the perimeter: a projection past its ends means the point is around
+    // that corner, and it clamps to the corner it meets.
+    float r0 = s1 + atr;            // right edge, from the top-right corner
+    float r1 = r0 + s2;
+    float b0 = s1 + atr + s2 + abr; // bottom edge, from the bottom-right corner
+    float b1 = b0 + s3;
+    float l0 = b1 + abl;            // left edge, from the bottom-left corner
+    float l1 = l0 + s4;
+    float t0 = l1 + atl;            // top edge, from the top-left corner
+    float t1 = t0 + max(2.0 * h.x - rtl - rtr, 0.0);
     bool right = p.x >= 0.0;
     bool down = p.y >= 0.0;
-    float r = right ? (down ? rbr : rtr) : (down ? rbl : rtl);
-    float ax = abs(p.x);
-    float ay = abs(p.y);
-    if (ax > h.x - r && ay > h.y - r) {
-        float2 c = float2(right ? h.x - r : r - h.x, down ? h.y - r : r - h.y);
-        float2 v = p - c;
-        float a = right ? (down ? atan(v.y, v.x) : atan(v.x, -v.y))
-                        : (down ? atan(-v.x, v.y) : atan(-v.y, -v.x));
-        float base = right ? (down ? s1 + atr + s2 : s1)
-                           : (down ? s1 + atr + s2 + abr + s3 : s1 + atr + s2 + abr + s3 + abl + s4);
-        return base + r * clamp(a, 0.0, 1.5707963);
-    }
-    // Off the corners the two nearest edges both project the point; their positions differ by the
-    // corner's arc, so a hard pick would leave a crease pointing in from the corner. Faded over the
-    // band's width instead: the nearest edge keeps it, the other only softens the join.
-    float sv = right ? s1 + atr + (p.y + h.y - rtr)
-                     : s1 + atr + s2 + abr + s3 + abl + (h.y - rbl - p.y);
-    float sh = down ? s1 + atr + s2 + abr + (h.x - rbr - p.x)
-                    : s1 + atr + s2 + abr + s3 + abl + s4 + atl + (p.x + h.x - rtl);
-    return mix(sh, sv, smoothstep(-width, width, (h.y - ay) - (h.x - ax)));
+    float sv = right ? clamp(r0 + (p.y + h.y - rtr), r0, r1)
+                     : clamp(l0 + (h.y - rbl - p.y), l0, l1);
+    float sh = down ? clamp(b0 + (h.x - rbr - p.x), b0, b1)
+                    : clamp(t0 + (p.x + h.x - rtl), t0, t1);
+    // Both edges project the point, and round the corner their positions differ by the corner's
+    // arc; a hard pick leaves a crease pointing in from the corner. Fading between them over a
+    // width that grows away from the corner keeps the colour flowing without compressing it.
+    float dx = h.x - abs(p.x);
+    float dy = h.y - abs(p.y);
+    float w = smoothstep(-1.0, 1.0, (dy - dx) / max(dx + dy, width));
+    float d = sv - sh;
+    d -= perimeter * floor(d / perimeter + 0.5);
+    return sh + d * w;
 }
 
 half4 main(float2 xy) {
