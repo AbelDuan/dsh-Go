@@ -73,13 +73,16 @@ jobs:
       - name: Android SDK packages
         run: |
           set -euo pipefail
-          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          test -d "$SDK"
+          # The image's SDK lives under /usr/local and is not reliably writable
+          # for the runner user; install into $HOME instead.
+          SDK="$HOME/android-sdk"
+          mkdir -p "$SDK/cmdline-tools"
+          rm -rf "$SDK/cmdline-tools/latest"
+          cp -a /usr/local/lib/android/sdk/cmdline-tools/latest "$SDK/cmdline-tools/latest"
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
           echo "$SDK/platform-tools" >> "$GITHUB_PATH"
           SM="$SDK/cmdline-tools/latest/bin/sdkmanager"
-          test -x "$SM"
           yes | "$SM" --sdk_root="$SDK" --licenses >/dev/null || true
           EXT=$(find "$HOME/dev/flutter/packages/flutter_tools/gradle/src/main" -name 'FlutterExtension.*' -print -quit)
           COMPILE_SDK=$(grep -oE 'compileSdkVersion[^0-9]*[0-9]+' "$EXT" | grep -oE '[0-9]+$' | head -1)
@@ -89,12 +92,13 @@ jobs:
                 "cmake;3.22.1" "ndk;28.2.13676358")
           if [ -n "$NDK" ] && [ "$NDK" != "28.2.13676358" ]; then PKGS+=("ndk;$NDK"); fi
           "$SM" --sdk_root="$SDK" "${PKGS[@]}"
-          # The runner image points ANDROID_NDK_HOME at its own NDK; the
-          # tawcroot helper needs the pinned 28.2.13676358 or refuses to build.
+          ls "$SDK/ndk"
           test -f "$SDK/ndk/28.2.13676358/source.properties"
           grep -q '^Pkg.Revision=28.2.13676358' "$SDK/ndk/28.2.13676358/source.properties"
+          # tawcroot refuses any other NDK; the runner image exports its own.
           echo "ANDROID_NDK_HOME=$SDK/ndk/28.2.13676358" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$SDK/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          "$HOME/dev/flutter/bin/flutter" config --android-sdk "$SDK"
 
       - name: Use the official Gradle distribution
         run: |
