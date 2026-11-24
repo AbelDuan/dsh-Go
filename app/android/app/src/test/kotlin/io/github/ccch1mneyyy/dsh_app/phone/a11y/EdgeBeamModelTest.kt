@@ -124,17 +124,22 @@ class EdgeBeamModelTest {
     @Test fun theDisplaysCornerRadiiWinOverTheFallback() {
         val uniform = EdgeBeamSpec.cornersPx(intArrayOf(120, 120, 120, 120), density)
         assertEquals(120f, uniform[0], 0f)
-        // A folded phone's outer screen: round on the right, square on the left. A radius under one
-        // rim width is a token, not a corner the panel masks: the rim hugs the vertex instead of
-        // stopping short of it (that shortfall is the unlit wedge along the corner's diagonal).
+        // A folded phone's outer screen: round on the right, nearly square on the left.
         val mixed = EdgeBeamSpec.cornersPx(intArrayOf(28, 154, 154, 28), density)
-        assertEquals(0f, mixed[0], 0f)
+        assertEquals(28f, mixed[0], 0f)
         assertEquals(154f, mixed[1], 0f)
         assertEquals(154f, mixed[2], 0f)
-        assertEquals(0f, mixed[3], 0f)
-        // Just past the rim width it is a real corner and the rim follows it.
-        val kept = EdgeBeamSpec.cornersPx(intArrayOf(40, 40, 40, 40), density)
-        assertEquals(40f, kept[2], 0f)
+        assertEquals(28f, mixed[3], 0f)
+        // Shading keeps that arc (a round falloff, no crease along the diagonal); the paint of a corner
+        // under one rim width goes square, into the vertex, so no unlit wedge is left behind.
+        val painted = EdgeBeamSpec.paintRadii(mixed, density)
+        assertEquals(0f, painted[0], 0f)
+        assertEquals(154f, painted[1], 0f)
+        assertEquals(154f, painted[2], 0f)
+        assertEquals(0f, painted[3], 0f)
+        // Just past the rim width there is a corner to keep.
+        val wide = EdgeBeamSpec.paintRadii(EdgeBeamSpec.cornersPx(intArrayOf(40, 40, 40, 40), density), density)
+        assertEquals(40f, wide[2], 0f)
         val fallback = 28 * 2.625f
         assertEquals(fallback, EdgeBeamSpec.cornersPx(null, density)[0], 0.001f)
         assertEquals(fallback, EdgeBeamSpec.cornersPx(intArrayOf(0, 0, 0, 0), density)[3], 0.001f)

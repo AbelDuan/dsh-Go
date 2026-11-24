@@ -247,6 +247,10 @@ internal class EdgeBeam(private val context: Context, private val wm: WindowMana
             val palette = EdgeBeamPalette.edge(seed, dark)
             val p = EdgeBeamSpec.preset(dark)
             val r = EdgeBeamSpec.cornersPx(corners.takeIf { c -> c.any { it > 0 } }, density)
+            // Shading follows r's arcs; the painted outline goes square where a corner is only a token
+            // (see EdgeBeamSpec.paintRadii), so the rim reaches those vertices instead of leaving an
+            // unlit wedge along the corner's diagonal.
+            val painted = EdgeBeamSpec.paintRadii(r, density)
             val widthPx = EdgeBeamSpec.WIDTH_DP * density
             val linePx = EdgeBeamSpec.LINE_DP * density
             val corePx = EdgeBeamSpec.CORE_DP * density
@@ -259,7 +263,7 @@ internal class EdgeBeam(private val context: Context, private val wm: WindowMana
                     val reach = EdgeBeamSpec.REACH * widthPx
                     band.reset()
                     band.fillType = Path.FillType.EVEN_ODD
-                    round(band, screen, r)
+                    round(band, screen, painted)
                     band.addRect(inset(screen, reach), Path.Direction.CW)
                     val bloomPx = EdgeBeamSpec.BLOOM_DP * density
                     RimShader.look(shader, w, h, r, widthPx, linePx, corePx, bloomPx, reach, p, dark, travels, palette)
@@ -270,13 +274,13 @@ internal class EdgeBeam(private val context: Context, private val wm: WindowMana
             }
             val colours = IntArray(palette.size + 1) { palette[it % palette.size] }
             ring.reset()
-            round(ring, screen, r)
+            round(ring, screen, painted)
             line.reset()
-            round(line, inset(screen, linePx / 2), insetRadii(r, linePx / 2))
+            round(line, inset(screen, linePx / 2), insetRadii(painted, linePx / 2))
             linePaint.strokeWidth = linePx
             linePaint.shader = SweepGradient(w / 2f, h / 2f, colours, null)
             core.reset()
-            round(core, inset(screen, corePx / 2), insetRadii(r, corePx / 2))
+            round(core, inset(screen, corePx / 2), insetRadii(painted, corePx / 2))
             corePaint.strokeWidth = corePx
             corePaint.shader = SweepGradient(w / 2f, h / 2f, colours, null)
             if (blurred) {
