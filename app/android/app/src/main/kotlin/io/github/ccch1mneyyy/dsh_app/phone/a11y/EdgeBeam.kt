@@ -442,13 +442,14 @@ float perimeterAt(float2 p, float2 h, float4 rr) {
                            : (down ? s1 + atr + s2 + abr + s3 : s1 + atr + s2 + abr + s3 + abl + s4);
         return base + r * clamp(a, 0.0, 1.5707963);
     }
-    // Which edge: the nearer one, so a tall screen's short edge is not mistaken for the long one.
-    if (h.x - ax < h.y - ay) {
-        return right ? s1 + atr + (p.y + h.y - rtr)
+    // Off the corners the two nearest edges both project the point; their positions differ by the
+    // corner's arc, so a hard pick would leave a crease pointing in from the corner. Faded over the
+    // band's width instead: the nearest edge keeps it, the other only softens the join.
+    float sv = right ? s1 + atr + (p.y + h.y - rtr)
                      : s1 + atr + s2 + abr + s3 + abl + (h.y - rbl - p.y);
-    }
-    return down ? s1 + atr + s2 + abr + (h.x - rbr - p.x)
-                : s1 + atr + s2 + abr + s3 + abl + s4 + atl + (p.x + h.x - rtl);
+    float sh = down ? s1 + atr + s2 + abr + (h.x - rbr - p.x)
+                    : s1 + atr + s2 + abr + s3 + abl + s4 + atl + (p.x + h.x - rtl);
+    return mix(sh, sv, smoothstep(-width, width, (h.y - ay) - (h.x - ax)));
 }
 
 half4 main(float2 xy) {
