@@ -159,8 +159,7 @@ internal object PetOverlay {
     private var companionName = "Companion"
     private var companionBubble: PetBubble? = null
     private var companionDisplayedId: String? = null
-    /** The reply the body has already reacted to: once per reply, when the stage could take it. */
-    private var companionReactedId: String? = null
+    private var companionLineSerial = 0L
     private var companionEndpoint: CompanionFloatEndpoint? = null
     private var companionView: CompanionFloatView? = null
     private var companionEpoch = 0L
@@ -334,25 +333,16 @@ internal object PetOverlay {
             petView?.isAttachedToWindow != true || !systemShown || machine.bubbles.current(now())?.ask != null ||
             answerState.bubbleId != null) return false
         val words = PetPush.clean(text, 600) ?: return false
-        // One bubble per reply: a streaming reply's later words go into the bubble already out.
-        val key = "companion:${id.orEmpty()}"
+        val key = "companion:${id.orEmpty()}:${++companionLineSerial}"
         companionBubble = PetBubble(key, "companion", words, companionName, null, null, now() + 15_000)
         evaluate()
         val shown = bubbleId == key && bubbleView?.isAttachedToWindow == true
         if (shown) {
             companionDisplayedId = id
-            if (companionReactedId != id && companionView?.companionLine(emotion ?: "neutral", words.length, speaking) == true) {
-                companionReactedId = id
-            }
+            companionView?.companionLine(emotion ?: "neutral", words.length, speaking)
         }
-        main.removeCallbacks(companionExpiry)
-        main.postDelayed(companionExpiry, 15_000)
+        main.postDelayed({ if (companionBubble?.id == key) { companionBubble = null; evaluate() } }, 15_000)
         return shown
-    }
-
-    private val companionExpiry = Runnable {
-        companionBubble = null
-        evaluate()
     }
 
     fun companionSpeech(id: String?, chars: Int, speaking: Boolean) {
@@ -1376,17 +1366,7 @@ internal object PetOverlay {
             return
         }
         val ctx = hostContext ?: return
-        val current = bubbleView
-        if (bubbleId == b.id && current != null && alive(windowTickets[current])) {
-            // The same reply, further along: new words in place, no new window or entrance.
-            if (b.kind == "companion" && b.text != bubbleText) {
-                bubbleText = b.text
-                current.bind(b)
-                val card = current.measureCard()
-                if (card != bubbleCard) refitBubble(current, card)
-            }
-            return
-        }
+        if (bubbleId == b.id && alive(bubbleView?.let { windowTickets[it] })) return
         removeBubble()
         val ticket = windows.claim(OverlayWindowOwner.Role.BUBBLE) ?: return
         val view = BubbleView(ctx) {
@@ -1416,7 +1396,6 @@ internal object PetOverlay {
         }
         bubbleView = view
         bubbleId = b.id
-        bubbleText = b.text
         bubbleParams = params
         bubbleCard = card
         bubbleFor = shown
@@ -1451,7 +1430,6 @@ internal object PetOverlay {
     }
 
     private var bubbleParams: WindowManager.LayoutParams? = null
-    private var bubbleText: String? = null
     private var bubbleCard: Pair<Int, Int>? = null
     /** The animation the bubble was placed over. */
     private var bubbleFor: String? = null
@@ -1502,7 +1480,6 @@ internal object PetOverlay {
         bubbleView?.let { remove(it) }
         bubbleView = null
         bubbleId = null
-        bubbleText = null
         bubbleParams = null
         bubbleCard = null
         bubbleFor = null
@@ -1559,9 +1536,9 @@ internal object PetOverlay {
     }
 
     /** The bubble's content changed size: measured and placed again where it is. */
-    private fun refitBubble(view: BubbleView, card: Pair<Int, Int> = view.measureCard()) {
+    private fun refitBubble(view: BubbleView) {
         val p = bubbleParams ?: return
-        bubbleMove?.cancel()
+        val card = view.measureCard()
         bubbleCard = card
         val place = bubblePlace(card, view.tailPx) ?: return
         view.setTail(place.tailAt, place.tail)
@@ -2202,6 +2179,9 @@ internal object PetOverlay {
             val relevant = ActivityInfo.CONFIG_ORIENTATION or ActivityInfo.CONFIG_SCREEN_SIZE or ActivityInfo.CONFIG_UI_MODE or ActivityInfo.CONFIG_DENSITY or ActivityInfo.CONFIG_FONT_SCALE
             if (diff and relevant == 0) return
             capture.invalidate()
+            // The display may have been swapped by folding: a window context cached for the old one
+            // would put the pet on a screen that is now off. Next attach takes the new one.
+            appWindowContext = null
             removeWindows()
             if (diff and ActivityInfo.CONFIG_DENSITY != 0) {
                 loadRequest++
@@ -2218,14 +2198,7 @@ internal object PetOverlay {
         override fun onLowMemory() = Unit
 
         override fun onTrimMemory(level: Int) {
-            if (petView != null) return
-            loaded?.release()
-            // 不显示: its idle picture, kept to come back quickly, has nothing to come back to.
-            if (packKey(machine.last) == null) {
-                loaded = null
-                loadedKey = null
-                stateKey = null
-            }
+            if (petView == null) loaded?.release()
         }
     }
 
