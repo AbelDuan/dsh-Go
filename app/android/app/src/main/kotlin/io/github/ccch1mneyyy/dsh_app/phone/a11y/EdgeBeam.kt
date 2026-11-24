@@ -247,10 +247,6 @@ internal class EdgeBeam(private val context: Context, private val wm: WindowMana
             val palette = EdgeBeamPalette.edge(seed, dark)
             val p = EdgeBeamSpec.preset(dark)
             val r = EdgeBeamSpec.cornersPx(corners.takeIf { c -> c.any { it > 0 } }, density)
-            // Shading follows r's arcs; the painted outline goes square where a corner is only a token
-            // (see EdgeBeamSpec.paintRadii), so the rim reaches those vertices instead of leaving an
-            // unlit wedge along the corner's diagonal.
-            val painted = EdgeBeamSpec.paintRadii(r, density)
             val widthPx = EdgeBeamSpec.WIDTH_DP * density
             val linePx = EdgeBeamSpec.LINE_DP * density
             val corePx = EdgeBeamSpec.CORE_DP * density
@@ -263,7 +259,7 @@ internal class EdgeBeam(private val context: Context, private val wm: WindowMana
                     val reach = EdgeBeamSpec.REACH * widthPx
                     band.reset()
                     band.fillType = Path.FillType.EVEN_ODD
-                    round(band, screen, painted)
+                    round(band, screen, r)
                     band.addRect(inset(screen, reach), Path.Direction.CW)
                     val bloomPx = EdgeBeamSpec.BLOOM_DP * density
                     RimShader.look(shader, w, h, r, widthPx, linePx, corePx, bloomPx, reach, p, dark, travels, palette)
@@ -274,13 +270,13 @@ internal class EdgeBeam(private val context: Context, private val wm: WindowMana
             }
             val colours = IntArray(palette.size + 1) { palette[it % palette.size] }
             ring.reset()
-            round(ring, screen, painted)
+            round(ring, screen, r)
             line.reset()
-            round(line, inset(screen, linePx / 2), insetRadii(painted, linePx / 2))
+            round(line, inset(screen, linePx / 2), insetRadii(r, linePx / 2))
             linePaint.strokeWidth = linePx
             linePaint.shader = SweepGradient(w / 2f, h / 2f, colours, null)
             core.reset()
-            round(core, inset(screen, corePx / 2), insetRadii(painted, corePx / 2))
+            round(core, inset(screen, corePx / 2), insetRadii(r, corePx / 2))
             corePaint.strokeWidth = corePx
             corePaint.shader = SweepGradient(w / 2f, h / 2f, colours, null)
             if (blurred) {
@@ -431,8 +427,20 @@ half4 main(float2 xy) {
     float2 h = size * 0.5;
     float2 p = xy - h;
     float r = p.x < 0.0 ? (p.y < 0.0 ? radii.x : radii.w) : (p.y < 0.0 ? radii.y : radii.z);
-    float2 q = abs(p) - (h - r);
-    float inset = max(-(length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r), 0.0);
+    float inset;
+    if (r < 0.5) {
+        // A corner the panel does not mask, painted square: the band's own width rounds it (a smooth
+        // min of the two edge distances) instead of the L an unrounded corner would give, whose
+        // diagonal is the farthest point from the rim and so reads as a crease running out of the
+        // corner. The vertex still comes out as the brightest point rather than the farthest.
+        float soft = width;
+        float dx = min(xy.x, size.x - xy.x);
+        float dy = min(xy.y, size.y - xy.y);
+        inset = max(min(dx, dy) - soft * log(1.0 + exp(-abs(dx - dy) / soft)), 0.0);
+    } else {
+        float2 q = abs(p) - (h - r);
+        inset = max(-(length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r), 0.0);
+    }
     if (inset > reach) return half4(0.0);
     float s = perimeterAt(p, h);
     float t = 0.08;

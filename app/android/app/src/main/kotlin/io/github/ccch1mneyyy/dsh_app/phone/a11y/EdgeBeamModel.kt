@@ -101,27 +101,20 @@ internal object EdgeBeamSpec {
      * rounded corners and two nearly square ones (1168 × 1712 reports 28, 154, 154, 28), so one
      * radius for the whole rim rounds the square corners and the glow sits off the glass.
      *
-     * These are the radii the rim's shading follows: an arc as tight as a 28 px token corner keeps
-     * the falloff round, so no crease runs out along the corner's diagonal. What the rim *paints* to
-     * is [paintRadii]'s business.
+     * A radius under one rim width ([WIDTH_DP]) comes back as 0. A display reports a token radius for
+     * a corner whose glass is square, and following that arc leaves an unlit wedge along the corner's
+     * diagonal — the gap that showed between the rim and the glass. The rim draws such a corner square,
+     * into the vertex, and the shader rounds the falloff there by the band's own width so the corner
+     * does not crease along the diagonal.
      */
     fun cornersPx(reported: IntArray?, density: Float): FloatArray {
         val fallback = CORNER_FALLBACK_DP * density
         if (reported == null || reported.none { it > 0 }) return FloatArray(4) { fallback }
-        return FloatArray(4) { max(reported.getOrElse(it) { 0 }, 0).toFloat() }
-    }
-
-    /**
-     * The radii the rim *paints* to: a corner under one rim width ([WIDTH_DP]) is painted square, all
-     * the way into the vertex. A display reports a token radius for a corner whose glass is square
-     * (the folded outer screen reports 28 px on its two square corners); following that arc leaves an
-     * unlit wedge along the corner's diagonal, which is the gap that showed between the rim and the
-     * glass. Shading stays on [cornersPx]'s arc: painting square keeps the falloff round instead of
-     * creasing it along the diagonal, and paint the panel does not have is masked out by its corner.
-     */
-    fun paintRadii(shading: FloatArray, density: Float): FloatArray {
         val square = WIDTH_DP * density
-        return FloatArray(4) { if (shading[it] < square) 0f else shading[it] }
+        return FloatArray(4) {
+            val radius = max(reported.getOrElse(it) { 0 }, 0).toFloat()
+            if (radius < square) 0f else radius
+        }
     }
 }
 
