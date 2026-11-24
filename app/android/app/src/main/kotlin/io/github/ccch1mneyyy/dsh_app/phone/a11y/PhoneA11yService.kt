@@ -56,8 +56,8 @@ class PhoneA11yService : AccessibilityService() {
         private set
 
     internal fun companionScreenSample(control: io.github.ccch1mneyyy.dsh_app.phone.PhoneControl,
-        excluded: Set<String>, current: () -> Boolean): Map<String, Any?> =
-        companionScreens?.sample(control, excluded, current) ?: mapOf("status" to "disconnected")
+        excluded: Set<String>, current: () -> Boolean, image: Boolean = false): Map<String, Any?> =
+        companionScreens?.sample(control, excluded, current, image) ?: mapOf("status" to "disconnected")
 
     internal fun companionScreenCurrent(control: io.github.ccch1mneyyy.dsh_app.phone.PhoneControl,
         excluded: Set<String>, packageName: String, requireIdle: Boolean): Boolean =
@@ -145,8 +145,8 @@ class PhoneA11yService : AccessibilityService() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        // Folding swaps the default display: a window context made for the old one adds windows
-        // to a screen that is now off, so the pet (and anything else we float) goes missing.
+        // Folding swaps the default display: a window context made for the old one adds windows to
+        // a screen that is now off, so the pet (and anything else we float) goes missing.
         invalidateOverlayWindowContext()
         overlay?.onConfigurationChanged()
     }
