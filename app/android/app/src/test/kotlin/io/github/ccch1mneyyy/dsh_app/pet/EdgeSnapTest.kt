@@ -171,5 +171,19 @@ class EdgeSnapTest {
         assertTrue(EdgeSnap.overDismiss(WindowPos(c.x - 100 + 40, c.y - 75 + 30), 200, 150, c, 50))
         assertFalse(EdgeSnap.overDismiss(WindowPos(c.x - 100 + 40, c.y - 75 + 31), 200, 150, c, 50))
     }
-}
+    @Test fun dockedPositionCanSitOnTheVeryEdge() {
+        // No sideways margin: the pet touches the edge of the screen, cutout or not.
+        assertEquals(0, EdgeSnap.position(Dock(Side.LEFT, 0.5f), w, h, portrait, m, marginX = 0).x)
+        assertEquals(2400 - w, EdgeSnap.position(Dock(Side.RIGHT, 0.5f), w, h, landscape, m, marginX = 0).x)
+        // The gap above and below is still the margin.
+        assertEquals(m, EdgeSnap.position(Dock(Side.RIGHT, 0f), w, h, landscape, m, marginX = 0).y)
+    }
 
+    @Test fun theSplitIsTheMiddleOfTheScreenByThePicture() {
+        assertEquals(Side.LEFT, EdgeSnap.sideFor(539.9f, portrait, 0f))
+        assertEquals(Side.RIGHT, EdgeSnap.sideFor(540f, portrait, 0f))
+        // A picture whose centre is left of the middle docks left, even from a window on the right.
+        assertEquals(Side.LEFT, EdgeSnap.dockFor(700, 1200, w, h, portrait, m, centerX = 500f).side)
+        assertEquals(Side.RIGHT, EdgeSnap.dockFor(100, 1200, w, h, portrait, m, centerX = 600f).side)
+    }
+}

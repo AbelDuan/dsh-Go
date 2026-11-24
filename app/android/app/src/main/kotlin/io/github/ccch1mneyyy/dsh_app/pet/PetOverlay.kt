@@ -611,7 +611,7 @@ internal object PetOverlay {
             // 12+ treating this invisible application overlay as an occluder.
             p.alpha = 0f
             p.flags = p.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-            placeRest(v, p, EdgeSnap.position(dock, v.reach, area, edge(v.context)))
+            placeRest(v, p, EdgeSnap.position(dock, v.reach, area, edge(v.context), marginX = 0))
             update(v, p)
             renderer.state(machine.last?.state ?: PetPack.IDLE, machine.last?.reduceMotion == true)
             renderer.freeze(dimmed)
@@ -637,7 +637,7 @@ internal object PetOverlay {
         p.alpha = 1f
         p.flags = p.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
         p.width = v.frame.width; p.height = v.frame.height
-        placeRest(v, p, EdgeSnap.position(dock, v.reach, safeArea(), edge(v.context)))
+        placeRest(v, p, EdgeSnap.position(dock, v.reach, safeArea(), edge(v.context), marginX = 0))
         update(v, p)
         retarget()
         drawStill()
@@ -955,7 +955,7 @@ internal object PetOverlay {
             view.contentDescription = loaded?.pack?.name ?: AppStrings.get(app, R.string.pet_label)
             dimmed = false
             systemShown = true
-            val pos = EdgeSnap.position(dock, view.reach, safeArea(), edge(ctx))
+            val pos = EdgeSnap.position(dock, view.reach, safeArea(), edge(ctx), marginX = 0)
             val hardware = if (companionEndpoint != null && !companionRecovery.fallback)
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED else 0
             val params = baseParams(view.pixelWidth, view.pixelHeight, hardware).apply { x = pos.x; y = pos.y }
@@ -1122,12 +1122,15 @@ internal object PetOverlay {
         if (animationsOn()) v.animate().alpha(alpha).setDuration(if (on) 400 else 150).setInterpolator(easing).start() else v.alpha = alpha
     }
 
-    /** The screen minus status / navigation bars and the cutout. */
+    /**
+     * The screen minus status / navigation bars. The camera cutout is left out on purpose: docked,
+     * the pet sits on the very edge, under the camera if that is where the edge is.
+     */
     private fun safeArea(): SafeArea {
         val w = wm ?: appWindowContext().getSystemService(WindowManager::class.java)
         if (Build.VERSION.SDK_INT >= 30) {
             val m = w.currentWindowMetrics
-            val i = m.windowInsets.getInsetsIgnoringVisibility(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+            val i = m.windowInsets.getInsetsIgnoringVisibility(WindowInsets.Type.systemBars())
             return SafeArea(m.bounds.width(), m.bounds.height(), i.left, i.top, i.right, i.bottom)
         }
         val dm = DisplayMetrics()
@@ -1209,9 +1212,13 @@ internal object PetOverlay {
             fitFrame()
             val area = safeArea()
             val drop = dropAt ?: restPos(v, p)
-            dock = EdgeSnap.dockFor(drop, v.pixelWidth, v.reach, area, edge(v.context), velocityX)
+            // Split at the middle of the screen by the pet's picture, not by its (often wider) box.
+            dock = EdgeSnap.dockFor(
+                drop, v.pixelWidth, v.reach, area, edge(v.context), velocityX,
+                centerX = drop.x + (v.body.left + v.body.right) / 2f,
+            )
             prefs.edit().putString(K_SIDE, if (dock.side == Side.LEFT) "left" else "right").putFloat(K_Y, dock.yFraction).apply()
-            slide(v, p, EdgeSnap.position(dock, v.reach, area, edge(v.context))) { evaluate() }
+            slide(v, p, EdgeSnap.position(dock, v.reach, area, edge(v.context), marginX = 0)) { evaluate() }
         }
 
         override fun onDragCancel() {
@@ -1222,7 +1229,7 @@ internal object PetOverlay {
             redraw()
             val v = petView ?: return
             val p = petParams ?: return
-            slide(v, p, EdgeSnap.position(dock, v.reach, safeArea(), edge(v.context))) { evaluate() }
+            slide(v, p, EdgeSnap.position(dock, v.reach, safeArea(), edge(v.context), marginX = 0)) { evaluate() }
         }
 
         override fun onPoke(leftHalf: Boolean, x: Float, y: Float) {
@@ -1824,7 +1831,7 @@ internal object PetOverlay {
         val gap = ctx.dp(8f)
         val margin = edge(ctx)
         val at = if (pv.companionGeometry != null) petParams?.let { restPos(pv, it) } ?: return
-            else EdgeSnap.position(dock, pv.reach, area, margin)
+            else EdgeSnap.position(dock, pv.reach, area, margin, marginX = 0)
         val body = f.body.at(at)
         val pet = ScreenRect(at.x + pv.reach.left, body.top, at.x + pv.reach.right, body.bottom)
         val w = AskPlace.width(pet, dock.side, area, gap, margin, ctx.dp(ASK_MIN_DP), ctx.dp(ASK_MAX_DP))

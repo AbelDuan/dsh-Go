@@ -3,7 +3,7 @@ package io.github.ccch1mneyyy.dsh_app.pet
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** The screen and what to keep clear of it (status / navigation bars, the camera cutout), in px. */
+/** The screen and what the pet keeps clear of (status / navigation bars), in px. The camera cutout is not in here: docked, the pet sits on the very edge, cutout or not. */
 data class SafeArea(
     val screenW: Int,
     val screenH: Int,
@@ -59,25 +59,36 @@ object EdgeSnap {
     fun minY(area: SafeArea, margin: Int) = area.top + margin
     fun maxY(area: SafeArea, h: Int, margin: Int) = maxOf(minY(area, margin), area.screenH - area.bottom - margin - h)
 
-    /** The side a window at [x] (width [w]) released with [velocityX] settles on. */
-    fun sideFor(x: Int, w: Int, area: SafeArea, velocityX: Float): Side {
+    /**
+     * The side a release settles on: thrown fast enough, the side it was thrown towards; otherwise
+     * the half of the screen the pet's picture is in, split at the middle of the screen.
+     */
+    fun sideFor(centerX: Float, area: SafeArea, velocityX: Float): Side {
         if (abs(velocityX) >= FLING_PX_PER_S) return if (velocityX < 0) Side.LEFT else Side.RIGHT
-        val center = x + w / 2f
-        return if (center < area.screenW / 2f) Side.LEFT else Side.RIGHT
+        return if (centerX < area.screenW / 2f) Side.LEFT else Side.RIGHT
     }
 
-    /** The dock for a window released at ([x], [y]). */
-    fun dockFor(x: Int, y: Int, w: Int, h: Int, area: SafeArea, margin: Int, velocityX: Float = 0f): Dock {
-        val side = sideFor(x, w, area, velocityX)
+    /** The side for a window at [x] (width [w]), by the middle of the window. */
+    fun sideFor(x: Int, w: Int, area: SafeArea, velocityX: Float): Side = sideFor(x + w / 2f, area, velocityX)
+
+    /**
+     * The dock for a window released at ([x], [y]), whose picture is centred on [centerX] (the window
+     * itself by default: a pack's box can be much wider than the art in it).
+     */
+    fun dockFor(
+        x: Int, y: Int, w: Int, h: Int, area: SafeArea, margin: Int, velocityX: Float = 0f,
+        centerX: Float = x + w / 2f,
+    ): Dock {
+        val side = sideFor(centerX, area, velocityX)
         val lo = minY(area, margin)
         val hi = maxY(area, h, margin)
         val f = if (hi <= lo) 0f else ((y - lo).toFloat() / (hi - lo)).coerceIn(0f, 1f)
         return Dock(side, f)
     }
 
-    /** Window position for [dock]. */
-    fun position(dock: Dock, w: Int, h: Int, area: SafeArea, margin: Int): WindowPos {
-        val x = if (dock.side == Side.LEFT) minX(area, margin) else maxX(area, w, margin)
+    /** Window position for [dock]. [marginX] is the gap to the docked edge, [margin] the one above and below. */
+    fun position(dock: Dock, w: Int, h: Int, area: SafeArea, margin: Int, marginX: Int = margin): WindowPos {
+        val x = if (dock.side == Side.LEFT) minX(area, marginX) else maxX(area, w, marginX)
         val lo = minY(area, margin)
         val hi = maxY(area, h, margin)
         val y = lo + ((hi - lo) * dock.yFraction.coerceIn(0f, 1f)).roundToInt()
@@ -89,17 +100,20 @@ object EdgeSnap {
      * (around the rest origin, [PetFrames.reach]): all of it inside the margins, so a grown frame
      * never has to move the pet. With reach = the rest frame, [position] as it always was.
      */
-    fun position(dock: Dock, reach: FramePx, area: SafeArea, margin: Int): WindowPos =
-        PetFrames.restOf(position(dock, reach.width, reach.height, area, margin), reach)
+    fun position(dock: Dock, reach: FramePx, area: SafeArea, margin: Int, marginX: Int = margin): WindowPos =
+        PetFrames.restOf(position(dock, reach.width, reach.height, area, margin, marginX), reach)
 
     /**
      * The dock for a rest frame ([restW] wide) released at [rest]: the side by the rest frame, as
      * always; the height as a share of the range [position] gives [reach].
      */
-    fun dockFor(rest: WindowPos, restW: Int, reach: FramePx, area: SafeArea, margin: Int, velocityX: Float = 0f): Dock {
+    fun dockFor(
+        rest: WindowPos, restW: Int, reach: FramePx, area: SafeArea, margin: Int, velocityX: Float = 0f,
+        centerX: Float = rest.x + restW / 2f,
+    ): Dock {
         val at = PetFrames.windowAt(rest, reach)
         val f = dockFor(at.x, at.y, reach.width, reach.height, area, margin).yFraction
-        return Dock(sideFor(rest.x, restW, area, velocityX), f)
+        return Dock(sideFor(centerX, area, velocityX), f)
     }
 
     /** While dragging: follow the finger, but keep the whole pet on screen. */

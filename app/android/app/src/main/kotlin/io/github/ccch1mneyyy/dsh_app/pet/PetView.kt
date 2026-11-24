@@ -182,6 +182,9 @@ internal class PetView(context: Context, private val listener: Listener) : Frame
     /** Every frame the window may take while docked ([PetFrames.reach]). */
     val reach: FramePx get() = sprites?.frames?.reach ?: frame
 
+    /** The idle picture around the rest frame's origin: what a dock may line up with the screen. */
+    val body: FramePx get() = sprites?.frames?.body ?: frame
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         setMeasuredDimension(frame.width, frame.height)
         companionGeometry?.let { size ->
