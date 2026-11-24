@@ -191,10 +191,32 @@ git push origin custom
    `onDragEnd` 的 `centerX`；`onConfigurationChanged` 里清空 `appWindowContext`。
 2. `EdgeSnap.kt` 里保留：`sideFor(centerX: Float, …)` 重载、`dockFor`/`position` 的 `centerX`/`marginX`、
    `FLING_PX_PER_S = 700f`、`hug` 的 `inset` 语义。
-3. `EdgeBeamModel.kt` 里保留：`cornersPx` 的 `FloatArray(4)`、角度场周长、`h.x - ax < h.y - ay` 的判边条件。
+3. `EdgeBeam*` 里保留：`cornersPx` 的 `FloatArray(4)`、角度场周长、`h.x - ax < h.y - ay` 的判边条件、
+   `cornersPx` 里"小于一个光带宽的半径归 0"（§1.7），以及 `EdgeBeam.kt` 里 `r < 0.5` 用平滑最小值
+   `min(dx,dy) − 0.7w·ln(1+e^{−|dx−dy|/0.7w})` 的那条分支。缺一个：归零但不平滑 → 折痕；平滑但不归零 → 缺口。
 4. `PhoneA11yService.onConfigurationChanged` 里保留 `invalidateOverlayWindowContext()`。
 5. `composer_strip.dart` 里 `AnimatedSwitcher(` 仍然只有 1 处。
-6. 跑一次 **Build fixed APK** 验证编译（Kotlin 单测在 CI 的 `Build the APK` 之前不一定全跑，冲突后至少要能编过）。
+6. `runtime/direct/proot-dns.mjs` 里保留 `net.setDefaultAutoSelectFamilyAttemptTimeout(1500)`（§1.6），
+   `runtime/lib/rtbuild.py` 的 `NODE_OPTIONS` 里保留 `--network-family-autoselection-attempt-timeout=1500`。
+   上游若重写了这两个文件，按 §1.6 重新加一遍（一行 + 一处环境变量）。
+7. 跑一次 **Build fixed APK** 验证编译（Kotlin 单测在 CI 的 `Build the APK` 之前不一定全跑，冲突后至少要能编过）。
+
+### 2.1 让 AI 合并与出包（本机固定流程）
+
+本机（aarch64 proot）出不了 APK，也没有 github.com 直连；走 API + Actions，口令是"合并上游并出一个新 APK"。
+我会按这个顺序做，做完把 APK 装到手机上：
+
+1. `POST /repos/AbelDuan/dsh-Go/merge-upstream` 或手动 `Sync fork`（`main` ↔ 上游），再触发
+   `POST /actions/workflows/sync-upstream.yml/dispatches {"ref":"custom"}`。
+2. 冲突时：用 `git` 拉 `custom` + `upstream/main`，按 §2 的检查清单解决，`POST /git/trees` 建提交推回 `custom`
+   （注意 tree entry 的 `type` 必须写 `blob`，写 `file` 会 500）。
+3. 推 `custom` 自动触发 **Build fixed APK**（改到 `app/**`、`runtime/**`、`tooling/**` 才会触发；
+   只改文档不会，这时候用 `workflow_dispatch` 手动跑）。
+4. 成功后从 release `strip-fix` 的 `app-arm64-release.apk` 附件下载（229 MB，走 `api.github.com` 的资产地址），
+   `cp` 到 `/data/local/tmp` 再 `pm install -r -d`（system_server 读不了 `/sdcard` 的 fuse），
+   App 进程会被杀一次、重启后生效。
+5. 装机后自查：`dumpsys package io.github.ccch1mneyyy.dsh_app | grep versionCode`；
+   `files/runtime/rootfs/opt/dsh-go/direct/proot-dns.mjs` 里应有 `1500`。
 
 ---
 
