@@ -100,11 +100,22 @@ internal object EdgeBeamSpec {
      * reported, or the fallback on all four when none is. A folded phone's outer screen has two
      * rounded corners and two nearly square ones (1168 × 1712 reports 28, 154, 154, 28), so one
      * radius for the whole rim rounds the square corners and the glow sits off the glass.
+     *
+     * A radius under one rim width ([WIDTH_DP]) comes back as 0: an arc that tight is shorter than
+     * the band is wide, and a display reporting a token radius for a corner whose glass is square
+     * leaves an unlit wedge along the corner's diagonal when that arc is followed (28 px on the
+     * outer screen's two square corners; the wedge is what showed between the rim and the glass).
+     * Hugging the vertex instead is safe either way: paint the panel does not have its own corner
+     * masks out.
      */
     fun cornersPx(reported: IntArray?, density: Float): FloatArray {
         val fallback = CORNER_FALLBACK_DP * density
         if (reported == null || reported.none { it > 0 }) return FloatArray(4) { fallback }
-        return FloatArray(4) { max(reported.getOrElse(it) { 0 }, 0).toFloat() }
+        val square = WIDTH_DP * density
+        return FloatArray(4) {
+            val radius = max(reported.getOrElse(it) { 0 }, 0).toFloat()
+            if (radius < square) 0f else radius
+        }
     }
 }
 
