@@ -382,8 +382,8 @@ internal class EdgeBeam(private val context: Context, private val wm: WindowMana
         }
 
         /**
-         * Inset from the rounded screen edge, position along it (clockwise from the top centre, as
-         * the reference's perimeterAt), the lumps' thickness there, and the colour's falloff inward:
+         * Inset from the rounded screen edge, position along it (clockwise from the top centre, by
+         * the angle round the screen's centre), the lumps' thickness there, and the colour's falloff inward:
          * exp(−(inset / (width × thickness))²), brighter where a beam passes (EdgeFlow.at). Over it the
          * stroke, exp(−(inset / core)²), brightest (and on a dark screen whitest) under a beam, and a
          * wider bloom, exp(−(inset / bloom.x)²) × bloom.y, also strongest there. The lumps' thickness
@@ -414,45 +414,13 @@ uniform float still;
 uniform float4 lumps[7];
 uniform float4 palette[9];
 
-float perimeterAt(float2 p, float2 h, float4 rr) {
-    // A radius per corner: rr = top-left, top-right, bottom-right, bottom-left, as reported.
-    float rtl = rr.x;
-    float rtr = rr.y;
-    float rbr = rr.z;
-    float rbl = rr.w;
-    float s1 = max(h.x - rtr, 0.0);
-    float atr = 1.5707963 * rtr;
-    float s2 = max(2.0 * h.y - rtr - rbr, 0.0);
-    float abr = 1.5707963 * rbr;
-    float s3 = max(2.0 * h.x - rbr - rbl, 0.0);
-    float abl = 1.5707963 * rbl;
-    float s4 = max(2.0 * h.y - rbl - rtl, 0.0);
-    float atl = 1.5707963 * rtl;
-    // Each edge's own span of the perimeter: a projection past its ends means the point is around
-    // that corner, and it clamps to the corner it meets.
-    float r0 = s1 + atr;            // right edge, from the top-right corner
-    float r1 = r0 + s2;
-    float b0 = s1 + atr + s2 + abr; // bottom edge, from the bottom-right corner
-    float b1 = b0 + s3;
-    float l0 = b1 + abl;            // left edge, from the bottom-left corner
-    float l1 = l0 + s4;
-    float t0 = l1 + atl;            // top edge, from the top-left corner
-    float t1 = t0 + max(2.0 * h.x - rtl - rtr, 0.0);
-    bool right = p.x >= 0.0;
-    bool down = p.y >= 0.0;
-    float sv = right ? clamp(r0 + (p.y + h.y - rtr), r0, r1)
-                     : clamp(l0 + (h.y - rbl - p.y), l0, l1);
-    float sh = down ? clamp(b0 + (h.x - rbr - p.x), b0, b1)
-                    : clamp(t0 + (p.x + h.x - rtl), t0, t1);
-    // Both edges project the point, and round the corner their positions differ by the corner's
-    // arc; a hard pick leaves a crease pointing in from the corner. Fading between them over a
-    // width that grows away from the corner keeps the colour flowing without compressing it.
-    float dx = h.x - abs(p.x);
-    float dy = h.y - abs(p.y);
-    float w = smoothstep(-1.0, 1.0, (dy - dx) / max(dx + dy, width));
-    float d = sv - sh;
-    d -= perimeter * floor(d / perimeter + 0.5);
-    return sh + d * w;
+float perimeterAt(float2 p, float2 h) {
+    // Position along the rim, clockwise from the top centre, by the angle the point is seen at from
+    // the screen's centre. One smooth field the whole way round: an edge-by-edge projection leaves
+    // a crease pointing in from every corner, where the two edges' positions part company.
+    float a = atan(p.x, -p.y);
+    if (a < 0.0) a += 6.2831853;
+    return perimeter * a / 6.2831853;
 }
 
 half4 main(float2 xy) {
@@ -462,7 +430,7 @@ half4 main(float2 xy) {
     float2 q = abs(p) - (h - r);
     float inset = max(-(length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r), 0.0);
     if (inset > reach) return half4(0.0);
-    float s = perimeterAt(p, h, radii);
+    float s = perimeterAt(p, h);
     float t = 0.08;
     for (int i = 0; i < 7; i++) {
         float ds = s - lumps[i].x;
