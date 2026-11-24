@@ -87,6 +87,12 @@ jobs:
                 "cmake;3.22.1" "ndk;28.2.13676358")
           if [ -n "$NDK" ] && [ "$NDK" != "28.2.13676358" ]; then PKGS+=("ndk;$NDK"); fi
           "$SM" --sdk_root="$SDK" "${PKGS[@]}"
+          # The runner image points ANDROID_NDK_HOME at its own NDK; the
+          # tawcroot helper needs the pinned 28.2.13676358 or refuses to build.
+          test -f "$SDK/ndk/28.2.13676358/source.properties"
+          grep -q '^Pkg.Revision=28.2.13676358' "$SDK/ndk/28.2.13676358/source.properties"
+          echo "ANDROID_NDK_HOME=$SDK/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$SDK/ndk/28.2.13676358" >> "$GITHUB_ENV"
 
       - name: Use the official Gradle distribution
         run: |
