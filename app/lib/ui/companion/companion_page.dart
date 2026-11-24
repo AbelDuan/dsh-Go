@@ -1680,7 +1680,9 @@ class _CompanionPageState extends ConsumerState<CompanionPage>
     routeVisible: _routeShown,
     stageReady: _stageReady && _phase == _Phase.stage,
     resumed: WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed,
-    inputBusy: _focus.hasFocus || _input.text.trim().isNotEmpty,
+    // While she voices a memory follow-up, the keyboard coming up must not
+    // withdraw it; nothing new is offered while it is shown anyway.
+    inputBusy: _memoryFollowupTicket == null && (_focus.hasFocus || _input.text.trim().isNotEmpty),
     generating: _sending || _running || (_agent.running && _attachment.preparingSignalId == null),
     // Her mouth still settling counts: the words may still be on their way out.
     audioBusy:
@@ -3822,10 +3824,13 @@ class _CompanionPageState extends ConsumerState<CompanionPage>
                 ValueListenableBuilder<TextEditingValue>(
                   valueListenable: _input,
                   builder: (context, value, _) => CompanionComposer(
-                    onUserInput: () {
-                      _acted();
-                      _hush();
-                    },
+                    // Reaching for the keyboard is not talking over her: she finishes
+                    // her sentence; sending (or the microphone) is what stops her.
+                    // While she voices a memory follow-up, acting would withdraw it
+                    // and cut her off, so typing only marks that the person is here.
+                    onUserInput: () => _memoryFollowupTicket == null
+                        ? _acted()
+                        : _observeLateUse(interaction: true),
                     input: _input,
                     focus: _focus,
                     hint: l10n.companionInputHint(name),
@@ -3866,15 +3871,20 @@ class _CompanionPageState extends ConsumerState<CompanionPage>
             children: [
               for (final tab in _CompanionTab.values)
                 if (tab == _CompanionTab.room)
-                  // Her stage's chrome keeps clear of the bar itself; the
-                  // first-run and failure screens get it as bottom padding.
-                  showStage
-                      ? room
-                      : MediaQuery(
-                          data: MediaQuery.of(context)
-                              .copyWith(padding: padding.copyWith(bottom: padding.bottom + navSpace)),
-                          child: room,
-                        )
+                  // Another page over her room covers it like a route: her
+                  // stage pauses there. Her stage's chrome keeps clear of the
+                  // bar itself; the first-run and failure screens get it as
+                  // bottom padding.
+                  TickerMode(
+                    enabled: _tab == _CompanionTab.room,
+                    child: showStage
+                        ? room
+                        : MediaQuery(
+                            data: MediaQuery.of(context)
+                                .copyWith(padding: padding.copyWith(bottom: padding.bottom + navSpace)),
+                            child: room,
+                          ),
+                  )
                 else if (!_visited.contains(tab))
                   const SizedBox.shrink()
                 else
