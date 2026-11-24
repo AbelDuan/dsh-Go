@@ -1741,7 +1741,9 @@ def launch_template():
         "pnpm_config_registry=" + NPMMIRROR,
         "UV_USE_IO_URING=0",
         "NARB_DISABLE_NATIVE_CACHE=1",
-        "NODE_OPTIONS=--dns-result-order=ipv4first",
+        # Node drops a connect attempt after 250 ms; a route whose RTT is above that
+        # window (slow international egress) then fails every attempt as ETIMEDOUT.
+        "NODE_OPTIONS=--dns-result-order=ipv4first --network-family-autoselection-attempt-timeout=1500",
     ]
     argv = [
         "{NATIVE_LIB_DIR}/libproot.so",

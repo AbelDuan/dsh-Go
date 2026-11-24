@@ -77,6 +77,51 @@
 - `.github/workflows/build-fixed-apk.yml`：本仓库自己的构建（见 §3）。
 - `.github/workflows/sync-upstream.yml`：把上游 `main` 合进 `custom`（手动 / 每天 03:23）。
 
+### 1.6 高 RTT 网络下"连模型一直重试 / 拉不到模型"
+
+**症状**：只在某条宽带下（同一个路由器 2.4G / 5G 都一样）OpencodeGO 拉模型列表失败、选模型后一直重试；
+换蜂窝或别的网络正常；同一把 key 在别处可用，额度也充足。
+
+**根因**：Node 默认 `net.getDefaultAutoSelectFamily() === true`、
+`net.getDefaultAutoSelectFamilyAttemptTimeout() === 250`（ms）。`fetch()`（undici）→ `net.connect`
+走 happy-eyeballs，**每个候选地址只给 250 ms**，超时即换下一个，全部放弃后连接以 `ETIMEDOUT` 失败
+（约 2×250 ms ≈ 520 ms 后返回）。该宽带出口到 opencode.ai（Cloudflare `104.18.10.66` / `104.18.11.66`）
+实测 RTT 212–628 ms（5G 318–394 ms），而到国内 `223.5.5.5` 只有 13–17 ms —— RTT 一旦跨过 250 ms，
+连接就必然被 Node 自己放弃。拉模型和对话走同一条连接路径，所以两者一起异常；引擎的 `TIMEOUT` 重试
+5 次（退避 0.5→8 s）把每次失败放大成"一直重试"。
+
+同网络同 key 15 次 `POST/GET /zen/go/v1/models` 的对照：
+
+| 配置 | 成功 |
+| --- | --- |
+| 默认（250 ms 窗口） | 6/15、13/15 波动，失败都是 ~520 ms `ETIMEDOUT` |
+| `--network-family-autoselection-attempt-timeout=1200/1500/2000` | 15/15 |
+| `--no-network-family-autoselection` | 15/15 |
+| 挂全局 VPN（TCP 在本地 tun 上握手） | 15/15 |
+
+对照实验排除了网络层：python 直连 TCP 15/15（中位 306 ms）、TLS 握手 8/8、连上后 `/models`
+返回完整 49407 字节。
+
+**改了什么**
+
+- `runtime/direct/proot-dns.mjs`：preload 里加
+  `net.setDefaultAutoSelectFamilyAttemptTimeout(1500)`。这个文件被 `runtime/lib/rtbuild.py`
+  原样铺到 rootfs 的 `/opt/dsh-go/direct/`，而引擎启动行固定带 `--import=/opt/dsh-go/direct/proot-dns.mjs`
+  （Direct 引擎走 `DirectLaunch` 的 node wrapper，PRoot 兜底走 `DirectLaunch.prootNodeOptions`），
+  所以两种启动方式都会加载它。
+- `runtime/lib/rtbuild.py`：non-Direct 的 PRoot 启动模板里，`NODE_OPTIONS` 同时带上
+  `--network-family-autoselection-attempt-timeout=1500`，终端里 `dsh` 子进程也跟着受益。
+  该值必须和 preload 里的一致（1500）。
+
+**合并时注意**：`runtime/direct/*` 会被放进 rootfs 的 `/opt/dsh-go/direct/`，属于运行时资产，
+只有重新构建运行时（`runtime/build-runtime.sh`）才会带上；`build-fixed-apk.yml` 会自己构建运行时，
+所以出 APK 不受影响。已经在旧运行时上装过的手机，可以用 `~/.dsh/patches/dsh-go-autoselect/apply.sh`
+现打一次。
+
+**怎么验证**：装新 APK 后，在同一条宽带下连续拉几次模型列表，`dsh` 日志里不应再出现
+`fetch failed / ETIMEDOUT`（~520 ms 快速失败）；或直接跑
+`node -p "require('node:net').getDefaultAutoSelectFamilyAttemptTimeout()"` 在 preload 里应为 1500。
+
 ---
 
 ## 2. 上游更新后怎么合
