@@ -95,9 +95,17 @@ internal object EdgeBeamSpec {
 
     fun preset(dark: Boolean) = if (dark) DARK else LIGHT
 
-    /** The display's corner radius in px, or the fallback. */
-    fun cornerPx(reported: Int?, density: Float): Float =
-        reported?.takeIf { it > 0 }?.toFloat() ?: (CORNER_FALLBACK_DP * density)
+    /**
+     * The display's four corner radii in px — top-left, top-right, bottom-right, bottom-left — as
+     * reported, or the fallback on all four when none is. A folded phone's outer screen has two
+     * rounded corners and two nearly square ones (1168 × 1712 reports 28, 154, 154, 28), so one
+     * radius for the whole rim rounds the square corners and the glow sits off the glass.
+     */
+    fun cornersPx(reported: IntArray?, density: Float): FloatArray {
+        val fallback = CORNER_FALLBACK_DP * density
+        if (reported == null || reported.none { it > 0 }) return FloatArray(4) { fallback }
+        return FloatArray(4) { max(reported.getOrElse(it) { 0 }, 0).toFloat() }
+    }
 }
 
 /**
@@ -124,10 +132,17 @@ internal object EdgeRim {
     val MAX_THICKNESS: Float = even((B.maxOf { (0.2 + 2.6 * it) * 1.25 } + BASE).div(NORM).toFloat())
 
     /** The length round a [w] × [h] rect with corners of radius [r] (any unit). */
-    fun perimeter(w: Float, h: Float, r: Float): Float {
-        val ex = max(w / 2 - r, 0f)
-        val ey = max(h / 2 - r, 0f)
-        return (4 * (ex + ey + 0.5 * PI * r)).toFloat()
+    fun perimeter(w: Float, h: Float, r: Float): Float = perimeter(w, h, FloatArray(4) { r })
+
+    /**
+     * The length round a [w] × [h] rect whose four corners (top-left, top-right, bottom-right,
+     * bottom-left) have the radii in [r]: each corner swaps two straight radii for a quarter circle,
+     * so the straights lose 2 × the radii' sum and the arcs add a quarter circle of it.
+     */
+    fun perimeter(w: Float, h: Float, r: FloatArray): Float {
+        val cap = min(w, h) / 2
+        val sum = r.sumOf { min(it, cap).toDouble() }
+        return (2 * (w + h) - 2 * sum + 0.5 * PI * sum).toFloat()
     }
 
     /**

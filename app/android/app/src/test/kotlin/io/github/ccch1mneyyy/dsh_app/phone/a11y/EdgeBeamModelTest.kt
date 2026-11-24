@@ -121,10 +121,25 @@ class EdgeBeamModelTest {
         assertTrue(EdgeBeamSpec.FRAME_MS >= 16)
     }
 
-    @Test fun theDisplaysCornerRadiusWinsOverTheFallback() {
-        assertEquals(120f, EdgeBeamSpec.cornerPx(120, 2.625f), 0f)
-        assertEquals(28 * 2.625f, EdgeBeamSpec.cornerPx(null, 2.625f), 0.001f)
-        assertEquals(28 * 2.625f, EdgeBeamSpec.cornerPx(0, 2.625f), 0.001f)
+    @Test fun theDisplaysCornerRadiiWinOverTheFallback() {
+        val uniform = EdgeBeamSpec.cornersPx(intArrayOf(120, 120, 120, 120), density)
+        assertEquals(120f, uniform[0], 0f)
+        // A folded phone's outer screen: round on the right, nearly square on the left.
+        val mixed = EdgeBeamSpec.cornersPx(intArrayOf(28, 154, 154, 28), density)
+        assertEquals(28f, mixed[0], 0f)
+        assertEquals(154f, mixed[1], 0f)
+        assertEquals(154f, mixed[2], 0f)
+        assertEquals(28f, mixed[3], 0f)
+        val fallback = 28 * 2.625f
+        assertEquals(fallback, EdgeBeamSpec.cornersPx(null, density)[0], 0.001f)
+        assertEquals(fallback, EdgeBeamSpec.cornersPx(intArrayOf(0, 0, 0, 0), density)[3], 0.001f)
+    }
+
+    @Test fun oneSquareCornerKeepsThePerimeterShort() {
+        // Mixed radii: the straights lose 2 × 364 px, the arcs add a quarter of it.
+        assertEquals(2 * (1080f + 2400f) - 2 * 364f + (0.5 * PI * 364f).toFloat(),
+            EdgeRim.perimeter(1080f, 2400f, floatArrayOf(28f, 154f, 154f, 28f)), 0.01f)
+        assertEquals(perimeter, EdgeRim.perimeter(1080f, 2400f, floatArrayOf(110f, 110f, 110f, 110f)), 0.01f)
     }
 
     // ---- 配色：跟 App 的主色 ------------------------------------------------------------------------

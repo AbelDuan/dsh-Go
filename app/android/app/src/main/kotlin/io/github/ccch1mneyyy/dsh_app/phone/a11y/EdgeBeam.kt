@@ -21,6 +21,7 @@ import android.view.RoundedCorner
 import android.view.View
 import android.view.WindowManager
 import androidx.annotation.RequiresApi
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
@@ -130,7 +131,9 @@ internal class EdgeBeam(private val context: Context, private val wm: WindowMana
             if (Build.VERSION.SDK_INT >= 31) {
                 val insets = wm.currentWindowMetrics.windowInsets
                 fun r(pos: Int) = insets.getRoundedCorner(pos)?.radius ?: 0
-                view.corner = maxOf(
+                // One radius per corner: a folded phone's outer screen is round on the right, nearly
+                // square on the left, and the rim has to sit on the glass all the way round.
+                view.corners = intArrayOf(
                     r(RoundedCorner.POSITION_TOP_LEFT), r(RoundedCorner.POSITION_TOP_RIGHT),
                     r(RoundedCorner.POSITION_BOTTOM_RIGHT), r(RoundedCorner.POSITION_BOTTOM_LEFT),
                 )
@@ -186,10 +189,10 @@ internal class EdgeBeam(private val context: Context, private val wm: WindowMana
                 if (width > 0) build(width, height)
             }
 
-        /** The display's corner radius in px (the largest it reports); 0 means not reported. */
-        var corner = 0
+        /** The display's corner radii in px, top-left to bottom-left; all 0 means not reported. */
+        var corners = IntArray(4)
             set(value) {
-                if (value == field) return
+                if (value.contentEquals(field)) return
                 field = value
                 if (width > 0) build(width, height)
             }
@@ -243,7 +246,7 @@ internal class EdgeBeam(private val context: Context, private val wm: WindowMana
         private fun build(w: Int, h: Int) {
             val palette = EdgeBeamPalette.edge(seed, dark)
             val p = EdgeBeamSpec.preset(dark)
-            val r = EdgeBeamSpec.cornerPx(corner.takeIf { it > 0 }, density)
+            val r = EdgeBeamSpec.cornersPx(corners.takeIf { c -> c.any { it > 0 } }, density)
             val widthPx = EdgeBeamSpec.WIDTH_DP * density
             val linePx = EdgeBeamSpec.LINE_DP * density
             val corePx = EdgeBeamSpec.CORE_DP * density
@@ -256,7 +259,7 @@ internal class EdgeBeam(private val context: Context, private val wm: WindowMana
                     val reach = EdgeBeamSpec.REACH * widthPx
                     band.reset()
                     band.fillType = Path.FillType.EVEN_ODD
-                    band.addRoundRect(screen, r, r, Path.Direction.CW)
+                    round(band, screen, r)
                     band.addRect(inset(screen, reach), Path.Direction.CW)
                     val bloomPx = EdgeBeamSpec.BLOOM_DP * density
                     RimShader.look(shader, w, h, r, widthPx, linePx, corePx, bloomPx, reach, p, dark, travels, palette)
@@ -267,13 +270,13 @@ internal class EdgeBeam(private val context: Context, private val wm: WindowMana
             }
             val colours = IntArray(palette.size + 1) { palette[it % palette.size] }
             ring.reset()
-            ring.addRoundRect(screen, r, r, Path.Direction.CW)
+            round(ring, screen, r)
             line.reset()
-            line.addRoundRect(inset(screen, linePx / 2), r - linePx / 2, r - linePx / 2, Path.Direction.CW)
+            round(line, inset(screen, linePx / 2), insetRadii(r, linePx / 2))
             linePaint.strokeWidth = linePx
             linePaint.shader = SweepGradient(w / 2f, h / 2f, colours, null)
             core.reset()
-            core.addRoundRect(inset(screen, corePx / 2), r - corePx / 2, r - corePx / 2, Path.Direction.CW)
+            round(core, inset(screen, corePx / 2), insetRadii(r, corePx / 2))
             corePaint.strokeWidth = corePx
             corePaint.shader = SweepGradient(w / 2f, h / 2f, colours, null)
             if (blurred) {
@@ -283,6 +286,15 @@ internal class EdgeBeam(private val context: Context, private val wm: WindowMana
                 bandPaint.maskFilter = BlurMaskFilter(widthPx, BlurMaskFilter.Blur.NORMAL)
             }
         }
+
+        /** [path] gains [rect] with its four corners (top-left, top-right, bottom-right, bottom-left) rounded by [radii]. */
+        private fun round(path: Path, rect: RectF, radii: FloatArray) {
+            path.addRoundRect(rect, floatArrayOf(
+                radii[0], radii[0], radii[1], radii[1], radii[2], radii[2], radii[3], radii[3],
+            ), Path.Direction.CW)
+        }
+
+        private fun insetRadii(radii: FloatArray, by: Float) = FloatArray(4) { max(radii[it] - by, 0f) }
 
         override fun onDraw(canvas: Canvas) {
             if (fade <= 0f || width == 0) return
@@ -328,13 +340,13 @@ internal class EdgeBeam(private val context: Context, private val wm: WindowMana
 
         /** What changes with the size and the look. */
         fun look(
-            s: Shader, w: Int, h: Int, radius: Float, width: Float, line: Float, core: Float, bloom: Float, reach: Float,
+            s: Shader, w: Int, h: Int, radii: FloatArray, width: Float, line: Float, core: Float, bloom: Float, reach: Float,
             p: EdgeBeamSpec.Preset, dark: Boolean, travels: Boolean, palette: IntArray,
         ) {
             s as RuntimeShader
-            val perimeter = EdgeRim.perimeter(w.toFloat(), h.toFloat(), radius)
+            val perimeter = EdgeRim.perimeter(w.toFloat(), h.toFloat(), radii)
             s.setFloatUniform("size", w.toFloat(), h.toFloat())
-            s.setFloatUniform("radius", radius)
+            s.setFloatUniform("radii", radii)
             s.setFloatUniform("width", width)
             s.setFloatUniform("line", line)
             s.setFloatUniform("core", core)
@@ -381,7 +393,7 @@ internal class EdgeBeam(private val context: Context, private val wm: WindowMana
          */
         private const val AGSL = """
 uniform float2 size;
-uniform float radius;
+uniform float4 radii;
 uniform float width;
 uniform float line;
 uniform float core;
@@ -402,36 +414,51 @@ uniform float still;
 uniform float4 lumps[7];
 uniform float4 palette[9];
 
-float perimeterAt(float2 p, float2 h, float r) {
-    float ex = max(h.x - r, 0.0);
-    float ey = max(h.y - r, 0.0);
-    float arc = 1.5707963 * r;
+float perimeterAt(float2 p, float2 h, float4 rr) {
+    // A radius per corner: rr = top-left, top-right, bottom-right, bottom-left, as reported.
+    float rtl = rr.x;
+    float rtr = rr.y;
+    float rbr = rr.z;
+    float rbl = rr.w;
+    float s1 = max(h.x - rtr, 0.0);
+    float atr = 1.5707963 * rtr;
+    float s2 = max(2.0 * h.y - rtr - rbr, 0.0);
+    float abr = 1.5707963 * rbr;
+    float s3 = max(2.0 * h.x - rbr - rbl, 0.0);
+    float abl = 1.5707963 * rbl;
+    float s4 = max(2.0 * h.y - rbl - rtl, 0.0);
+    float atl = 1.5707963 * rtl;
+    bool right = p.x >= 0.0;
+    bool down = p.y >= 0.0;
+    float r = right ? (down ? rbr : rtr) : (down ? rbl : rtl);
     float ax = abs(p.x);
     float ay = abs(p.y);
-    if (ax > ex && ay > ey) {
-        float2 v = p - float2(sign(p.x) * ex, sign(p.y) * ey);
-        float a = 0.0;
-        float base = 0.0;
-        if (p.x >= 0.0 && p.y < 0.0) { a = atan(v.x, -v.y); base = ex; }
-        else if (p.x >= 0.0) { a = atan(v.y, v.x); base = ex + arc + 2.0 * ey; }
-        else if (p.y >= 0.0) { a = atan(-v.x, v.y); base = 3.0 * ex + 2.0 * arc + 2.0 * ey; }
-        else { a = atan(-v.y, -v.x); base = 3.0 * ex + 3.0 * arc + 4.0 * ey; }
+    if (ax > h.x - r && ay > h.y - r) {
+        float2 c = float2(right ? h.x - r : r - h.x, down ? h.y - r : r - h.y);
+        float2 v = p - c;
+        float a = right ? (down ? atan(v.y, v.x) : atan(v.x, -v.y))
+                        : (down ? atan(-v.x, v.y) : atan(-v.y, -v.x));
+        float base = right ? (down ? s1 + atr + s2 : s1)
+                           : (down ? s1 + atr + s2 + abr + s3 : s1 + atr + s2 + abr + s3 + abl + s4);
         return base + r * clamp(a, 0.0, 1.5707963);
     }
-    bool side = ax > ex ? true : (ay > ey ? false : (h.x - ax) < (h.y - ay));
-    if (side) {
-        return p.x >= 0.0 ? ex + arc + (p.y + ey) : 3.0 * ex + 3.0 * arc + 2.0 * ey + (ey - p.y);
+    // Which edge: the nearer one, so a tall screen's short edge is not mistaken for the long one.
+    if (h.x - ax < h.y - ay) {
+        return right ? s1 + atr + (p.y + h.y - rtr)
+                     : s1 + atr + s2 + abr + s3 + abl + (h.y - rbl - p.y);
     }
-    return p.y < 0.0 ? (p.x >= 0.0 ? p.x : perimeter + p.x) : ex + 2.0 * arc + 2.0 * ey + (ex - p.x);
+    return down ? s1 + atr + s2 + abr + (h.x - rbr - p.x)
+                : s1 + atr + s2 + abr + s3 + abl + s4 + atl + (p.x + h.x - rtl);
 }
 
 half4 main(float2 xy) {
     float2 h = size * 0.5;
     float2 p = xy - h;
-    float2 q = abs(p) - (h - radius);
-    float inset = max(-(length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius), 0.0);
+    float r = p.x < 0.0 ? (p.y < 0.0 ? radii.x : radii.w) : (p.y < 0.0 ? radii.y : radii.z);
+    float2 q = abs(p) - (h - r);
+    float inset = max(-(length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r), 0.0);
     if (inset > reach) return half4(0.0);
-    float s = perimeterAt(p, h, radius);
+    float s = perimeterAt(p, h, radii);
     float t = 0.08;
     for (int i = 0; i < 7; i++) {
         float ds = s - lumps[i].x;
