@@ -5816,6 +5816,12 @@ abstract class L10n {
   /// **'终端'**
   String get botsTerminal;
 
+  /// No description provided for @botsTerminalShowKeyboard.
+  ///
+  /// In zh, this message translates to:
+  /// **'唤起键盘'**
+  String get botsTerminalShowKeyboard;
+
   /// No description provided for @botsTerminalRename.
   ///
   /// In zh, this message translates to:
@@ -9428,6 +9434,12 @@ abstract class L10n {
   /// **'刚才那件事我可能已经动手了，怕做两遍。你先在「交代的事」里看一眼，再告诉我要不要接着来？'**
   String get companionAgentRetryClosed;
 
+  /// No description provided for @companionPhoneRunStopped.
+  ///
+  /// In zh, this message translates to:
+  /// **'手机上的事做到一半断了，我怕重复操作就先停在这儿。你看一眼手机现在的样子，要接着来就再跟我说一声。'**
+  String get companionPhoneRunStopped;
+
   /// No description provided for @companionLogTitle.
   ///
   /// In zh, this message translates to:
@@ -9769,6 +9781,12 @@ abstract class L10n {
   /// In zh, this message translates to:
   /// **'再摇我要吐泡泡了！'**
   String get companionShake3;
+
+  /// No description provided for @companionShakeDizzy.
+  ///
+  /// In zh, this message translates to:
+  /// **'头好晕……世界在转。'**
+  String get companionShakeDizzy;
 
   /// No description provided for @companionStatusIdle.
   ///
@@ -11600,28 +11618,22 @@ abstract class L10n {
   /// **'第二次'**
   String get companionReminderSecond;
 
-  /// No description provided for @companionReminderExactMissing.
-  ///
-  /// In zh, this message translates to:
-  /// **'手机还没让我准点提醒，这条没设上。去系统设置里打开「闹钟和提醒」就好。'**
-  String get companionReminderExactMissing;
-
   /// No description provided for @companionReminderNotificationsMissing.
   ///
   /// In zh, this message translates to:
-  /// **'通知没开，这条还没设上。去系统设置里打开通知就好。'**
+  /// **'设好了，可通知还关着，到点我叫不到你。去系统设置里打开通知就好。'**
   String get companionReminderNotificationsMissing;
 
   /// No description provided for @companionReminderChannelMissing.
   ///
   /// In zh, this message translates to:
-  /// **'「提醒」这类通知被关掉了，这条还没设上。去系统设置里打开就好。'**
+  /// **'设好了，可「提醒」这类通知被关掉了，到点我叫不到你。去系统设置里打开就好。'**
   String get companionReminderChannelMissing;
 
   /// No description provided for @companionReminderGroupMissing.
   ///
   /// In zh, this message translates to:
-  /// **'提醒所在的那组通知被关掉了，这条还没设上。去系统设置里打开就好。'**
+  /// **'设好了，可提醒所在的那组通知被关掉了，到点我叫不到你。去系统设置里打开就好。'**
   String get companionReminderGroupMissing;
 
   /// No description provided for @companionReminderTimePassed.
@@ -13727,6 +13739,48 @@ abstract class L10n {
   /// In zh, this message translates to:
   /// **'这次来不及了，原话还留着。'**
   String get companionRawEraseGone;
+
+  /// No description provided for @companionSetupWorkshop.
+  ///
+  /// In zh, this message translates to:
+  /// **'去创意工坊找一位'**
+  String get companionSetupWorkshop;
+
+  /// No description provided for @companionRosterTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'伙伴'**
+  String get companionRosterTitle;
+
+  /// No description provided for @companionRosterHere.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在小屋里'**
+  String get companionRosterHere;
+
+  /// No description provided for @companionRosterAdd.
+  ///
+  /// In zh, this message translates to:
+  /// **'添加伙伴'**
+  String get companionRosterAdd;
+
+  /// No description provided for @companionRosterBring.
+  ///
+  /// In zh, this message translates to:
+  /// **'请她进小屋'**
+  String get companionRosterBring;
+
+  /// No description provided for @companionRosterRemove.
+  ///
+  /// In zh, this message translates to:
+  /// **'从手机上移除'**
+  String get companionRosterRemove;
+
+  /// No description provided for @companionRosterRemoveConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'把「{name}」从这台手机上移除？她的文件会删掉，记忆和提醒还在。'**
+  String companionRosterRemoveConfirm(String name);
 
   /// No description provided for @automaticDiagnosticsRecover.
   ///
