@@ -21,6 +21,7 @@ import android.os.PowerManager
 import io.github.ccch1mneyyy.dsh_app.MainActivity
 import io.github.ccch1mneyyy.dsh_app.R
 import io.github.ccch1mneyyy.dsh_app.phone.PhoneControl
+import io.github.ccch1mneyyy.dsh_app.phone.shell.RootRelay
 
 /** Foreground service that keeps the local DSH process alive in the background. */
 class DshService : Service() {
@@ -37,6 +38,8 @@ class DshService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // The guest's root channel is our own superuser grant: bring the relay up with the engine.
+        RootRelay.ensure(this)
         val controller = RuntimeController.get(this)
         when (intent?.action) {
             ACTION_INSTALL -> {
