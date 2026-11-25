@@ -8,6 +8,7 @@ name: Build fixed APK
 # over the released build (cross-signature install is allowed there).
 
 on:
+  # Dispatch is the manual path; a push to custom also builds.
   workflow_dispatch:
   push:
     branches: [custom]
