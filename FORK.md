@@ -200,9 +200,14 @@
 
 ## 2. 上游更新后怎么合
 
-1. 仓库首页 **Sync fork**（把 `main` 同步到上游最新）。
-2. Actions → **Sync upstream into custom** → Run workflow（每天 03:23 也会自动跑）。
-   没有冲突就直接推回去；**有冲突任务失败，`custom` 不动**。
+1. **不需要再点 Sync fork**：`AbelDuan/dsh-go-ci` 里的 **Sync upstream into custom** 会自己跑
+   （每天 03:23，也能手动 Run workflow）。它做三件事：把 fork 的 `main` 快进到上游 `main` → 把上游
+   `main` 合进 `custom` → 合并成功就顺手 dispatch 出包任务（`build` 输入传 false 则只合并不出包）。
+2. **有冲突时任务失败**，`custom` 一个字节都不动，job summary 里列出冲突文件（`main` 镜像照样更新）；
+   下次照下面本地解决。fork 自己的 `sync-upstream.yml` 是历史遗留，**fork 的 Actions 已被禁用，靠不住**。
+
+> `dsh-go-ci` 需要仓库 secret `DSH_GO_PAT`（对 `AbelDuan/dsh-Go` 有 contents:write 的 token）才能推
+> `custom`；secret 于 2026-11-25 写入，token 只存在 GitHub 的加密 secret 里。
 3. 有冲突时本地解决（`custom` 上原有的修复要留下，冲突几乎总在下面这几个文件）：
 
 ```sh
@@ -237,47 +242,40 @@ git push origin custom
 5. `PetOverlay` 的键盘避让：`refreshIme()` 单一来源、`clearOfIme()`/`usableArea()`、
    `onObstaclesChanged()`，以及 `PhoneA11yService` 的 `TYPE_WINDOWS_CHANGED` 里那一行调用。
 6. `PhoneA11yService.onConfigurationChanged` 里保留 `invalidateOverlayWindowContext()`。
-7. `composer_strip.dart` 里 `AnimatedSwitcher(` 仍然只有 1 处。
-8. `runtime/direct/proot-dns.mjs` 里保留 `net.setDefaultAutoSelectFamilyAttemptTimeout(1500)`（§1.6），
+7. `OverlayPolicy.kt` 的 `locked` → `PetOverlay.locked()`（`KeyguardManager.isKeyguardLocked`）、
+   `PetOverlay` 的 `refreshIme()` / `clearOfIme()` / `usableArea()` / `onObstaclesChanged()`、
+   `EdgeSnap.aboveKeyboard()`+`aboveIme()`。注意键盘高度取自
+   `android.view.accessibility.AccessibilityWindowInfo`（**不是** `android.accessibilityservice`，写错就编译不过）。
+8. `composer_strip.dart` 里 `AnimatedSwitcher(` 仍然只有 1 处。
+9. `runtime/direct/proot-dns.mjs` 里保留 `net.setDefaultAutoSelectFamilyAttemptTimeout(1500)`（§1.6），
    `runtime/lib/rtbuild.py` 的 `NODE_OPTIONS` 里保留 `--network-family-autoselection-attempt-timeout=1500`。
    上游若重写了这两个文件，按 §1.6 重新加一遍（一行 + 一处环境变量）。
-7. 跑一次 **Build fixed APK** 验证编译（Kotlin 单测在 CI 的 `Build the APK` 之前不一定全跑，冲突后至少要能编过）。
+10. 合并后必然要能的编译验证已经内置：`dsh-go-ci` 的 sync 任务合并完成后会 dispatch `build.yml`，
+    编译在 Actions 里跑（Kotlin 单测不一定全跑，至少保证能编过）；只改文档不会触发，需要时手动
+    Run workflow。
 
 ### 2.1 让 AI 合并与出包（本机固定流程）
 
-本机（aarch64 proot）出不了 APK，也没有 github.com 直连；走 API + Actions，口令是"合并上游并出一个新 APK"。
-我会按这个顺序做，做完把 APK 装到手机上：
+本机（aarch64 proot）出不了 APK，也没有 github.com 直连；走 API + Actions，口令是「合并上游并出包」。
+固定顺序（2026-11-25 按现状重写）：
 
-1. `POST /repos/AbelDuan/dsh-Go/merge-upstream` 或手动 `Sync fork`（`main` ↔ 上游），再触发
-   `POST /actions/workflows/sync-upstream.yml/dispatches {"ref":"custom"}`。
-2. 冲突时：用 `git` 拉 `custom` + `upstream/main`，按 §2 的检查清单解决，`POST /git/trees` 建提交推回 `custom`
-   （注意 tree entry 的 `type` 必须写 `blob`，写 `file` 会 500）。
-3. 推 `custom` 自动触发 **Build fixed APK**（改到 `app/**`、`runtime/**`、`tooling/**` 才会触发；
-   只改文档不会，这时候用 `workflow_dispatch` 手动跑）。
-4. 成功后从 release `strip-fix` 的 `app-arm64-release.apk` 附件下载（229 MB，走 `api.github.com` 的资产地址），
-   `cp` 到 `/data/local/tmp` 再 `pm install -r -d`（system_server 读不了 `/sdcard` 的 fuse），
-   App 进程会被杀一次、重启后生效。
-5. 装机后自查：`dumpsys package io.github.ccch1mneyyy.dsh_app | grep versionCode`；
+1. 触发 `AbelDuan/dsh-go-ci` 的 sync：`POST /repos/AbelDuan/dsh-go-ci/actions/workflows/429799995/dispatches`
+   （body `{"ref":"main","inputs":{"build":true}}`）。它负责快进 `main` 镜像、合并 `custom`、dispatch 构建。
+   想先看差异再动：`GET /repos/AbelDuan/dsh-Go/compare/<upstream-main-sha>...<custom-sha>`，`behind_by > 0`
+   就是落后的提交数。
+2. 合并冲突时（sync 任务失败）：用 API 读两侧文件、按 §2 清单解决，`POST /git/trees` + `/git/commits`
+   推回 `custom`（tree entry 的 `type` 必须写 `blob`，写 `file` 会 500）；推完再手动 dispatch `build.yml`。
+3. 构建在 `AbelDuan/dsh-go-ci` 的 `build.yml`（id 429765289）跑，约 25–30 分钟；产物是 artifact
+   `dsh-go-arm64`（约 227 MB，zip 里就一个 `app-arm64-release.apk`）。
+4. 取产物（本机实测 ~1 MB/s）：先带 PAT 请求
+   `GET /repos/AbelDuan/dsh-go-ci/actions/artifacts/<ID>/zip` 并**禁止跟随重定向**拿到 `Location`，
+   再用**不带** Authorization 的请求 GET 那个 Azure 地址（带 token 会 401）。
+5. 装机：`cp` 到 `/data/local/tmp/dshgo.apk` → `pm install -r -d /data/local/tmp/dshgo.apk` →
+   删临时文件（system_server 读不了 `/sdcard` 的 fuse）。App 进程会被杀一次，重开生效。
+6. 装机后自查：`dumpsys package io.github.ccch1mneyyy.dsh_app | grep versionCode`；
    `files/runtime/rootfs/opt/dsh-go/direct/proot-dns.mjs` 里应有 `1500`。
 
 ---
-
-
-### 从 dsh-go-ci 取产物（2026-11-25 实测）
-
-```bash
-# 1. 触发（或用网页 Run workflow）
-curl -X POST -H "Authorization: Bearer $PAT" \
-  https://api.github.com/repos/AbelDuan/dsh-go-ci/actions/workflows/429765289/dispatches \
-  -d '{"ref":"main"}'
-
-# 2. 轮询 run，完成后列 artifact（约 227 MB，zip）
-curl -H "Authorization: Bearer $PAT" \
-  https://api.github.com/repos/AbelDuan/dsh-go-ci/actions/artifacts
-
-# 3. 下载：先带 PAT 请求 /actions/artifacts/<ID>/zip 并**不要跟随重定向**拿 Location，
-#    再用不带 auth 的请求 GET 那个 Azure URL（带 auth 会 401）。实测 ~1 MB/s。
-```
 
 ## 3. 出 APK
 
