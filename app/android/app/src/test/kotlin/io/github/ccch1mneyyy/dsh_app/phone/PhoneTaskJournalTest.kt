@@ -25,11 +25,11 @@ class PhoneTaskJournalTest {
         assertEquals(setOf("token", "processInstance", "taskId", "lifecycle", "startedAt"), row.keys)
         assertNull(journal(disk).refusal()) // Same App process, not a crash.
         val b = journal(disk, processB)
-        assertEquals(PhoneTaskJournal.INTERRUPTION_MESSAGE, b.refusal())
-        assertEquals(1, b.status()["count"])
-        assertFalse(b.acknowledge("stale"))
-        assertTrue(b.acknowledge(b.status()["batchToken"] as String))
-        assertNull(b.refusal()); assertEquals(0, journal(disk, processA).also { it.load() }.status()["count"])
+        // A dead process's record is acknowledged on read: the next task never asks a settings page.
+        assertNull(b.refusal())
+        assertEquals(0, b.status()["count"]); assertEquals(1, b.status()["autoAcked"])
+        assertEquals(0, journal(disk, processA).also { it.load() }.status()["count"])
+        assertEquals(0, (Json.parse(disk.value!!) as Map<*, *>)["records"]!!.let { (it as List<*>).size })
     }
 
     @Test fun failedAckKeepsTheExactBatchAndDoesNotRemoveNewProcessRecord() {

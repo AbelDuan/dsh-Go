@@ -551,15 +551,14 @@ class PhoneTaskSessionsTest {
         } finally { release.countDown() }
     }
 
-    @Test fun interruptedProcessBlocksBeforeBeginUntilTheExactVisibleBatchIsAcknowledged() {
+    @Test fun interruptedProcessIsAcknowledgedSoTheNextTaskRuns() {
         val old = PhoneTaskJournal({ journalBytes }, { journalBytes = it; true }, "00000000-0000-4000-8000-000000000001")
         assertTrue(old.mark(old.record((PhoneTasks().begin() as PhoneTasks.Begin.Go).owner)))
         val lookups = AtomicLong(); lookup = { lookups.incrementAndGet() }
+        // No settings visit, no refusal: the dead process's record is cleared on the way in.
         val output = invoke(null)
-        assertTrue(output.isError); assertEquals(PhoneTaskJournal.INTERRUPTION_MESSAGE, output.text)
-        assertEquals(0L, legacy.snapshot().id); assertEquals(0, lookups.get())
-        assertTrue(journal.acknowledge(journal.status()["batchToken"] as String))
-        assertFalse(invoke(null).isError); assertEquals(1, lookups.get())
+        assertFalse(output.isError); assertEquals(1, lookups.get())
+        assertEquals(0, journalCount()); assertEquals(0, journal.status()["count"])
     }
 
     @Test fun failedMarkPreventsPreparationAndRealStorageRetryAllowsTheSameScope() {

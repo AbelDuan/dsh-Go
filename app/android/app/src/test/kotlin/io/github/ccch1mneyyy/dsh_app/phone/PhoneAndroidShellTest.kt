@@ -70,7 +70,7 @@ class PhoneAndroidShellTest {
             core.call(PhoneToolCatalog.ANDROID_SHELL, mapOf("command" to command) + extra)
         fun direct(owner: PhoneTasks.Owner) = PhoneAndroidShell.run(
             PhoneAndroidShell.Request("printf test", 100), owner, tasks, SerialWorker.Scope(),
-            env.androidShell(), env::enabled, env::isLocked, env::gate, PhoneUiText.DEFAULT)
+            env.androidShell(), env::enabled, env::isLocked, env::gate, { false }, PhoneUiText.DEFAULT)
         override fun close() { core.worker.shutdown() }
     }
 

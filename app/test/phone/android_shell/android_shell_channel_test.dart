@@ -31,12 +31,21 @@ void main() {
     expect(status.limits['maxCommandBytes'], 2048);
   });
 
+  test('the root backend is accepted and reported as such', () {
+    final status = AndroidShellStatus.fromMap({
+      ...shellStatus(enabled: true, backend: 'root', ready: true, uid: 0, reasonCode: null),
+    });
+    expect(status.supported, isTrue);
+    expect(status.backend, AndroidShellBackend.root);
+    expect(status.uid, 0);
+  });
+
   test('absent, malformed or unknown protocols fail closed without fallback', () {
     for (final value in <Map<Object?, Object?>>[
       {},
       {...shellStatus(), 'v': 2},
       {...shellStatus(), 'v': 1.0},
-      {...shellStatus(), 'backend': 'root'},
+      {...shellStatus(), 'backend': 'su'},
       {...shellStatus(), 'enabled': 1},
       {...shellStatus(), 'ready': 'yes'},
     ]) {

@@ -20,6 +20,7 @@ class PhoneTaskJournal(
     private var batch = emptySet<String>()
     private var batchToken: String? = null
     private var error: String? = null
+    private var autoAcked = 0
     @Volatile private var summary: Map<String, Any?> = mapOf(
         "version" to 1, "state" to "loading", "count" to 0, "batchToken" to null, "error" to null)
 
@@ -42,10 +43,23 @@ class PhoneTaskJournal(
         } catch (_: Exception) { error = "loadFailed"; publish(); false }
     }
 
-    /** Runs on the bridge call thread, before Begin/prepare and outside all task locks. */
+    /** Runs on the bridge call thread, before Begin/prepare and outside all task locks.
+     * Records a previous process left behind are acknowledged here instead of stopping the next
+     * task: nobody should have to open a settings page to find out what a dead process did. Only
+     * storage that cannot be read or written still refuses, because nothing can be claimed. */
     fun refusal(): String? = synchronized(lock) {
         if (!loadLocked() || error != null) STORAGE_MESSAGE
-        else if (batch.isNotEmpty()) INTERRUPTION_MESSAGE else null
+        else {
+            if (batch.isNotEmpty()) acknowledgeInterrupted()
+            null
+        }
+    }
+
+    /** Drops the previous process's unfinished records so the next mark() writes a clean file. */
+    private fun acknowledgeInterrupted() {
+        val stale = records.filter { it.process != processInstance }
+        if (stale.isEmpty()) return
+        if (write(records.filter { it.process == processInstance })) autoAcked += stale.size
     }
 
     fun mark(record: Record): Boolean = synchronized(lock) {
@@ -91,7 +105,8 @@ class PhoneTaskJournal(
         val old = records.filter { it.process != processInstance }.map { it.token }.toSet()
         if (old != batch) { batch = old; batchToken = if (old.isEmpty()) null else UUID.randomUUID().toString() }
         summary = mapOf("version" to 1, "state" to if (error != null) "error" else if (loaded) "ready" else "loading",
-            "count" to batch.size, "batchToken" to if (error == null && loaded) batchToken else null, "error" to error)
+            "count" to batch.size, "batchToken" to if (error == null && loaded) batchToken else null, "error" to error,
+            "autoAcked" to autoAcked)
     }
 
     private fun decode(raw: String): List<Record> {
@@ -114,8 +129,6 @@ class PhoneTaskJournal(
 
     companion object {
         private val PROCESS_INSTANCE = UUID.randomUUID().toString()
-        // l10n:keep agent interruption result
-        const val INTERRUPTION_MESSAGE = "上次手机任务中断或未能保存结束状态，操作结果可能已经发生。本次未执行。请先在手机操控页核对中断提示。"
         // l10n:keep agent storage result
         const val STORAGE_MESSAGE = "无法保存或读取任务状态，本次未执行。请在手机操控页重试保存或读取。"
     }
