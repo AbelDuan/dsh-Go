@@ -1743,7 +1743,9 @@ def launch_template():
         "pnpm_config_registry=" + NPMMIRROR,
         "UV_USE_IO_URING=0",
         "NARB_DISABLE_NATIVE_CACHE=1",
-        "NODE_OPTIONS=--dns-result-order=ipv4first",
+        # Node 24 happy eyeballs gives each address family 250 ms by default; a Wi-Fi route
+        # whose RTT is above that drops every candidate and connect fails with ETIMEDOUT.
+        "NODE_OPTIONS=--dns-result-order=ipv4first --network-family-autoselection-attempt-timeout=1500",
     ]
     argv = [
         "{NATIVE_LIB_DIR}/libproot.so",
