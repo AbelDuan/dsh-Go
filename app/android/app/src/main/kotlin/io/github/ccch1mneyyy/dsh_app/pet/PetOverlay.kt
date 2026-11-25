@@ -7,7 +7,7 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.app.Activity
 import android.app.Application
-import android.accessibilityservice.AccessibilityWindowInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import android.app.KeyguardManager
 import android.app.Notification
 import android.app.NotificationChannel
