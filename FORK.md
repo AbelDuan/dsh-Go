@@ -196,6 +196,36 @@
 - **验证**：`OverlayMachineTest.theLockScreenTakesThePetAway`；真机按电源锁屏，`dumpsys window windows | grep "DSH 宠物"`
   应为空，解锁后重新出现。
 
+### 1.10 手机壳层：中断不再阻断、内置 root 通道、shell 免确认
+
+- **症状**：①上一次手机任务被中断后，之后每次调用手机工具都返回「上次手机任务中断…请先在手机操控页核对」，必须先点确认才能继续；②想给助手一条真正的 root 命令通道，只能装外部 KSU 模块 `dsh-root-relay`，模块或 `/data/local/tmp` 一被清就断；③`android_shell` 每条命令都要确认。
+- **根因**：①`PhoneTaskJournal` 只写不读，遗留记录会让 `refusal()` 一直拦；②root 能力走的是外部中继二进制 + 模块开机脚本，与 App 自己的 `su` 授权无关；③`PhoneAndroidShell` 的免确认只看本任务授权，没看设置里的「始终允许」。
+- **改动**：
+  - `phone/shell/PhoneTaskJournal.kt`（`dsh_app` 的 phone 包）：发现遗留记录即 `acknowledgeInterrupted()` 自动清除，`status()` 多一个 `autoAcked` 计数；只有存储读写失败才继续报 `STORAGE_MESSAGE`。设置页的确认按钮保留（通常已无事可做）。
+  - `phone/shell/ShellRootBackend.kt`：`su -c "CLASSPATH=<apk 路径> exec /system/bin/app_process /system/bin AndroidShellMain"`，把已有 job 协议原样包成 `ShellLink("root")`；`ShellProtocol.validUid` 增 `"root" -> uid == 0`。
+  - `AndroidShellController` 的 `BACKENDS` 与 `PhonePlugin.configureAndroidShell` 白名单加 `root`；设置页多一行 **Root (su)**，无需配对，直接 Connect。
+  - `PhoneAndroidShell.run` 新增 `autoApprove`，由 `PhoneCore.androidShell` 传设置里的「始终允许」；打开后 `android_shell` 不再逐条确认。
+- **验证**：`/proc/<engine pid>/environ` 看 `--import`；真机设置里选 Root (su) → Connect → `android_shell id` 应输出 `uid=0(root)`；上次任务中断后直接调工具应成功。
+
+### 1.11 root 中继内置：装 App + 给 Su 就够了
+
+- **症状**：给 dsh-go 授了 Su，但在 Linux 环境里跑 root 命令仍然失败（`root-relay 不可达`），用户会以为授权没生效。
+- **根因**：两件事被混在一起——App 自己的 `su` 通道（`ShellRootBackend`）是通的；助手 bash 用的中继（`~/.dsh/root-relay/rsh` → `127.0.0.1:37121`）却是仓库外的 KSU 模块 + `/data/local/tmp` 二进制，模块被删或 `/data/local/tmp` 被清就没了。
+- **改动**：
+  - `assets/rootrelay/dsr`：静态编译的 aarch64 中继（713 KB，源码 `AbelDuan/dsh-root-relay`）随 APK 走。
+  - `phone/shell/RootRelay.kt`：每个进程跑一次，`su -c` 把 `dsr` 铺到 `/data/local/tmp/dsh-root/`、写 token/端口、`setsid nohup` 起监听，并把 token/port 写回 guest 的 `files/runtime/rootfs/root/.dsh/root-relay/`（`rsh` 读这里）。已在监听且 guest token 在 → 直接跳过；`/data/local/tmp` 被清或 runtime 重装后自动重建。
+  - `DshService.onStartCommand` 开头调 `RootRelay.ensure(this)`（引擎起来时中继一起起来）；全程 `runCatching`，失败只记日志，不影响引擎。
+- **语义**：不再需要 `/data/adb/modules/dsh-root-relay`；唯一前提是 App 持有 Su 授权。
+- **验证**：`rm -rf /data/local/tmp/dsh-root` → 重启 App → `~/.dsh/root-relay/rsh 'id'` 应输出 `uid=0(root)`。
+
+### 1.12 固定签名：每次出包都用同一把 key
+
+- **症状**：CI 出的包 `pm install -r` 报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`（签名不一致），每次都得卸载重装，数据全丢。
+- **根因**：`dsh-go-ci` 的 runner 每次生成新的 debug keystore，签名随机。
+- **改动**：`tooling/keys/` 存入 `dsh-go-release.keystore`（PKCS12，alias `dshgo`，RSA 4096，`CN=dsh-go`，证书 SHA-256 `acd9272d…d49908`）、`password.txt`、`README.md`；`dsh-go-ci` 的 `build.yml` 优先用仓库内这把 key 写 `app/android/key.properties` 并 `keytool -list` 自检，secrets 只作兜底。
+- **注意**：workflow 是 job 级 `working-directory: dsh-Go`，路径必须写成 `$(pwd)/tooling/keys/...`，用 `$GITHUB_WORKSPACE` 会拼错一层。
+- **验证**：`java -jar apksigner.jar verify --print-certs app.apk` 的 DN 应为 `CN=dsh-go`。
+
 ---
 
 ## 2. 上游更新后怎么合
@@ -296,7 +326,11 @@ Actions → **Build fixed APK** → Run workflow（推 `custom` 也会自动跑�
   以及 run 页的 `dsh-go-arm64-strip-fix` artifact。
 - 构建参数：`tooling/build-apk.sh -f arm64 --no-companion --no-star`。
   **`--no-companion`**：仓库里没有授权的桌宠素材包，装出来没有桌宠，其余功能不变。
-- 没有 `app/android/key.properties`，所以是 **debug 签名**；手机可以跨签名覆盖安装，数据保留。
+> **2026-11-25 起签名固定**：`tooling/keys/dsh-go-release.keystore`（alias `dshgo`，`CN=dsh-go`）
+> 已入库，`dsh-go-ci` 的 `build.yml` 优先用它写 `app/android/key.properties` 并 `keytool -list` 自检。
+> 出包证书恒为 `SHA-256 acd9272d…d49908`，`pm install -r` 直接覆盖，**不需要卸载**。
+> secrets（`KEYSTORE_B64` / `KEYSTORE_PASSWORD` / `KEY_ALIAS` / `KEY_PASSWORD`）只作兜底。
+> 换 key 会让已装机器装不上（除非系统能跨签名覆盖），所以这把 key 不要丢、不要换。
 - CI 环境注意（Linux runner）：SDK 装到 `$HOME/android-sdk`（runner 镜像里的 SDK 不可写）；
   `tawcroot` 要求 NDK **28.2.13676358**，直接用 google 的 `android-ndk-r28c-linux.zip`（`sdkmanager` 装出来的缺 `source.properties`）。
 
@@ -323,6 +357,7 @@ CI 报 `CompanionScreenBridge.kt:118 Too many arguments`。
 
 | 时间 | 上游 | 结果 |
 | --- | --- | --- |
+| 2026-11-25 | 无（本 fork 自身） | `1.10` 手机壳层三项（中断自动解除 / 内置 root shell / shell 尊重「始终允许」）、`1.11` root 中继内置进 APK、`1.12` 固定签名入库；装机 `11260045`（1.4.0） |
 | 2026-11-25 | `d73c679c3`（175 提交 / 165 文件） | 合并：`OverlayPolicy.kt`、`PetOverlay.kt`、`PhoneA11yService.kt` 三方合并**无冲突**（本 fork 对这三个文件的改动与上游不在同一处）；`EdgeSnap.kt`、`PetView.kt`、`EdgeBeam*`、`composer_strip.dart` 上游未动，直接用 `custom` 版本。合并后新增 §1.8 键盘避让与 §1.9 锁屏不显示 |
 | 2026-11-24 | `db9452d9` | fork 建立，`custom` = 上游 + 修复提交（`ba37627` 起） |
 | 2026-11-24 | `5ac52c368`（75+1 提交，146 个文件） | 合并提交 `a7a3593b8`；冲突 3 处，全在 `pet/PetOverlay.kt`（`onDragEnd` / `onDragCancel` / `askFresh`）：按上游新增的 `dockedRest()` 与 companion float 分支保留双方改动；`EdgeSnap.kt`、`EdgeSnapTest.kt` 三方合并无冲突 |
