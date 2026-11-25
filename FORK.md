@@ -264,6 +264,17 @@ git push origin custom
 
 ## 3. 出 APK
 
+> **2026-11-25 起：本仓库（fork）的 Actions 被 GitHub 禁用**，`workflow_dispatch` 返回
+> `422 Actions has been disabled for this repository`，push 也不再产生任何 run。
+> 起因是某次 push 里带了 `.github/workflows/` 的改动（哪怕只加一行注释）——fork 的 workflow
+> 一变，GitHub 就要仓库所有者到网页上重新批准。`/actions/permissions` 仍显示 `enabled: true`、
+> workflow `state: active`，`PUT .../workflows/{id}/enable` 返回 204 也不解除，只能网页点一次。
+> **日常构建改走独立仓库 [`AbelDuan/dsh-go-ci`](https://github.com/AbelDuan/dsh-go-ci)**
+> （普通仓库、非 fork、Actions 正常）：它 clone `AbelDuan/dsh-Go@custom` 后跑和下面完全相同的
+> 步骤，产物是 artifact `dsh-go-arm64`。教训：**不要为了触发构建去改 fork 里的 workflow 文件。**
+
+本仓库自己的 workflow（网页批准后仍可用）：
+
 Actions → **Build fixed APK** → Run workflow（推 `custom` 也会自动跑；workflow 名在 Actions 列表里可能显示为 **CI**）。
 
 - 产物：release [`strip-fix`](https://github.com/AbelDuan/dsh-Go/releases/tag/strip-fix) 的 `app-arm64-release.apk`，
