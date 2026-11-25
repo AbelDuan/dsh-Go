@@ -262,6 +262,23 @@ git push origin custom
 
 ---
 
+
+### 从 dsh-go-ci 取产物（2026-11-25 实测）
+
+```bash
+# 1. 触发（或用网页 Run workflow）
+curl -X POST -H "Authorization: Bearer $PAT" \
+  https://api.github.com/repos/AbelDuan/dsh-go-ci/actions/workflows/429765289/dispatches \
+  -d '{"ref":"main"}'
+
+# 2. 轮询 run，完成后列 artifact（约 227 MB，zip）
+curl -H "Authorization: Bearer $PAT" \
+  https://api.github.com/repos/AbelDuan/dsh-go-ci/actions/artifacts
+
+# 3. 下载：先带 PAT 请求 /actions/artifacts/<ID>/zip 并**不要跟随重定向**拿 Location，
+#    再用不带 auth 的请求 GET 那个 Azure URL（带 auth 会 401）。实测 ~1 MB/s。
+```
+
 ## 3. 出 APK
 
 > **2026-11-25 起：本仓库（fork）的 Actions 被 GitHub 禁用**，`workflow_dispatch` 返回
