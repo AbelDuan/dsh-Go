@@ -159,6 +159,43 @@
 **怎么验证**：控制手机期间用根 `screencap` 截外屏 —— ①沿两个直角角的对角线，第一颗亮像素应 ≤2 px
 （原来第 9 px）；②沿 45° 垂直截面扫亮度，不应再有 2–3 px 的凹线。`EdgeBeamModelTest` 全绿。
 
+### 1.8 输入法弹出后宠物被键盘挡住
+
+- **症状**：键盘弹起来盖住宠物下半身；拖到底部时宠物还能停在键盘下面。
+- **根因**：`SafeArea` 只减状态栏 / 导航栏，宠物不知道自己下面是键盘 —— 无障碍 overlay 不会被系统重排。
+- **改动**：
+  - `pet/EdgeSnap.kt`：新增纯函数 `SafeArea.aboveKeyboard(imeTop)`（把可用区底边抬到键盘上沿）与
+    `EdgeSnap.aboveIme(at, h, imeTop, margin, floor)`（**只在键盘顶到时**上移，不按比例缩放位置）。
+  - `pet/PetOverlay.kt`：`imeTop` 缓存（`IME_REFRESH_MS = 250`）由 `refreshIme()` 读两处来源 ——
+    无障碍服务运行中读 `PhoneA11yService.instance.windows` 里 `TYPE_INPUT_METHOD` 的 `bounds.top`
+    （悬浮 / 分体键盘取最上沿，和胶囊同一来源），否则 App 自己是焦点窗口时读
+    `currentWindowMetrics.windowInsets` 的 `ime` inset；`dockedRest()` 结尾过 `clearOfIme()`；
+    拖动、`向一句`、气泡改用 `usableArea()`；键盘高度变化时 `seat()` 把宠物平滑滑到新位置。
+  - `phone/a11y/PhoneA11yService.kt`：`TYPE_WINDOWS_CHANGED` 事件里追加 `PetOverlay.onObstaclesChanged()`。
+- **语义**：键盘收起后宠物回到原来的 dock（`yFraction` 不变），不记忆「被顶上去」的位置。
+- **合并注意**：`refreshIme()` 是唯一读取点，别在别处再读 `windows` 或 inset；`usableArea()` 只用于
+  「不许盖键盘」的场景，`safeArea()` 仍是 dock 的基准（这样键盘才只顶、不缩放）。
+- **验证**：`EdgeSnapTest.aKeyboardLiftsThePetOnlyWhenItReaches` / `theAreaAboveTheKeyboardIsTheUsableOne`；
+  真机在 DSH 或别的 App 里点输入框，宠物上移到键盘上方，收起键盘后回落原位。
+
+### 1.9 锁屏界面还显示宠物
+
+- **症状**：锁屏 / 亮屏未解锁时，宠物仍画在锁屏上（能看见、能点）。
+- **根因**：`PetOverlay.interactive()` 把「屏幕亮」与「未锁屏」合成一个布尔，`OverlayMachine.rule()` 在
+  `!interactive` 时返回 `PAUSED` —— 只停动画，窗口还在。
+- **改动**：
+  - `pet/OverlayPolicy.kt`：`OverlayMachine` 新增 `locked` 字段，`rule()` 在 `!interactive` **之前**
+    判 `locked` 并返回 `HIDDEN("locked")`（走 `removeWindows()`，窗口真的移除，不是暂停）。
+  - `pet/PetOverlay.kt`：`interactive()` 只判 `PowerManager.isInteractive`；新增 `locked()` 读
+    `KeyguardManager.isKeyguardLocked`，在 `evaluate()` 里写进 `machine.locked`。
+  - 触发链路已有的都复用：`ACTION_SCREEN_OFF / SCREEN_ON / USER_PRESENT` 广播（`screen` receiver）、
+    无障碍 `TYPE_WINDOWS_CHANGED`（钥匙锁窗口出现/消失会来）。
+- **语义**：熄屏 → `PAUSED`（保持进程、回来快）；锁屏 → `HIDDEN`（不留窗口）。解锁后由广播 + 每 2 s 的
+  poll 恢复。
+- **合并注意**：不要把 `locked` 合回 `interactive`；`hidden("locked")` 不带 `keepAlive`，锁屏时没必要为宠物留前台服务。
+- **验证**：`OverlayMachineTest.theLockScreenTakesThePetAway`；真机按电源锁屏，`dumpsys window windows | grep "DSH 宠物"`
+  应为空，解锁后重新出现。
+
 ---
 
 ## 2. 上游更新后怎么合
@@ -184,6 +221,7 @@ git push origin custom
 | `pet/PetOverlay.kt` | 上游活动频繁（companion float、停靠、气泡都在这），本地改的是 `safeArea()`、`dockedRest()`、`onDragEnd` |
 | `pet/EdgeSnap.kt` / `EdgeSnapTest.kt` | 本地加了 `centerX` / `marginX` 参数、`sideFor` 重载、阈值 700 |
 | `phone/a11y/EdgeBeam*.kt` | 四角半径与角度场周长 |
+| `pet/OverlayPolicy.kt` | 本地加了 `locked` 字段与 `rule()` 里的锁屏分支 |
 
 **合并时的检查清单**
 
@@ -194,9 +232,13 @@ git push origin custom
 3. `EdgeBeam*` 里保留：`cornersPx` 的 `FloatArray(4)`、角度场周长、`h.x - ax < h.y - ay` 的判边条件、
    `cornersPx` 里"小于一个光带宽的半径归 0"（§1.7），以及 `EdgeBeam.kt` 里 `r < 0.5` 用平滑最小值
    `min(dx,dy) − 0.7w·ln(1+e^{−|dx−dy|/0.7w})` 的那条分支。缺一个：归零但不平滑 → 折痕；平滑但不归零 → 缺口。
-4. `PhoneA11yService.onConfigurationChanged` 里保留 `invalidateOverlayWindowContext()`。
-5. `composer_strip.dart` 里 `AnimatedSwitcher(` 仍然只有 1 处。
-6. `runtime/direct/proot-dns.mjs` 里保留 `net.setDefaultAutoSelectFamilyAttemptTimeout(1500)`（§1.6），
+4. `pet/OverlayPolicy.kt` 里保留 `locked` 字段、`rule()` 中 `locked → hidden("locked")` 在 `!interactive`
+   之前；`PetOverlay` 里保留 `interactive()`（只判屏幕）与 `locked()`（判钥匙锁）分开。
+5. `PetOverlay` 的键盘避让：`refreshIme()` 单一来源、`clearOfIme()`/`usableArea()`、
+   `onObstaclesChanged()`，以及 `PhoneA11yService` 的 `TYPE_WINDOWS_CHANGED` 里那一行调用。
+6. `PhoneA11yService.onConfigurationChanged` 里保留 `invalidateOverlayWindowContext()`。
+7. `composer_strip.dart` 里 `AnimatedSwitcher(` 仍然只有 1 处。
+8. `runtime/direct/proot-dns.mjs` 里保留 `net.setDefaultAutoSelectFamilyAttemptTimeout(1500)`（§1.6），
    `runtime/lib/rtbuild.py` 的 `NODE_OPTIONS` 里保留 `--network-family-autoselection-attempt-timeout=1500`。
    上游若重写了这两个文件，按 §1.6 重新加一遍（一行 + 一处环境变量）。
 7. 跑一次 **Build fixed APK** 验证编译（Kotlin 单测在 CI 的 `Build the APK` 之前不一定全跑，冲突后至少要能编过）。
@@ -255,6 +297,7 @@ CI 报 `CompanionScreenBridge.kt:118 Too many arguments`。
 
 | 时间 | 上游 | 结果 |
 | --- | --- | --- |
+| 2026-11-25 | `d73c679c3`（175 提交 / 165 文件） | 合并：`OverlayPolicy.kt`、`PetOverlay.kt`、`PhoneA11yService.kt` 三方合并**无冲突**（本 fork 对这三个文件的改动与上游不在同一处）；`EdgeSnap.kt`、`PetView.kt`、`EdgeBeam*`、`composer_strip.dart` 上游未动，直接用 `custom` 版本。合并后新增 §1.8 键盘避让与 §1.9 锁屏不显示 |
 | 2026-11-24 | `db9452d9` | fork 建立，`custom` = 上游 + 修复提交（`ba37627` 起） |
 | 2026-11-24 | `5ac52c368`（75+1 提交，146 个文件） | 合并提交 `a7a3593b8`；冲突 3 处，全在 `pet/PetOverlay.kt`（`onDragEnd` / `onDragCancel` / `askFresh`）：按上游新增的 `dockedRest()` 与 companion float 分支保留双方改动；`EdgeSnap.kt`、`EdgeSnapTest.kt` 三方合并无冲突 |
 

@@ -209,4 +209,23 @@ class EdgeSnapTest {
         assertEquals(Side.LEFT, EdgeSnap.dockFor(700, 1200, w, h, portrait, m, centerX = 500f).side)
         assertEquals(Side.RIGHT, EdgeSnap.dockFor(100, 1200, w, h, portrait, m, centerX = 600f).side)
     }
+    @Test fun aKeyboardLiftsThePetOnlyWhenItReaches() {
+        // 1080×2400, keyboard top at 1600: a pet 198 tall at y 1200 is clear and stays put.
+        assertEquals(WindowPos(0, 1200), EdgeSnap.aboveIme(WindowPos(0, 1200), h, 1600, m, 96 + m))
+        // At y 1500 it would be covered: raised to sit just above the keyboard.
+        assertEquals(1600 - h - m, EdgeSnap.aboveIme(WindowPos(0, 1500), h, 1600, m, 96 + m).y)
+        // No keyboard: unchanged.
+        assertEquals(WindowPos(0, 1500), EdgeSnap.aboveIme(WindowPos(0, 1500), h, null, m, 96 + m))
+        // A keyboard taller than the screen can't push it above the top of the safe area.
+        assertEquals(96 + m, EdgeSnap.aboveIme(WindowPos(0, 1500), h, 100, m, 96 + m).y)
+    }
+
+    @Test fun theAreaAboveTheKeyboardIsTheUsableOne() {
+        val a = portrait.aboveKeyboard(1600)
+        assertEquals(2400 - 1600, a.bottom)
+        assertEquals(1600 - h, EdgeSnap.clampDrag(0, 5000, w, h, a).y)
+        // No keyboard, or one below the bars' own inset: the area is the one it always was.
+        assertEquals(portrait, portrait.aboveKeyboard(null))
+        assertEquals(portrait, portrait.aboveKeyboard(2400 - 63))
+    }
 }

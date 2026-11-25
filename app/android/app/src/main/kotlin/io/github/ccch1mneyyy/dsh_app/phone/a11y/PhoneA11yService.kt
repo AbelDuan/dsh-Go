@@ -21,6 +21,7 @@ import android.util.Log
 import android.view.Display
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import io.github.ccch1mneyyy.dsh_app.pet.PetOverlay
 import io.github.ccch1mneyyy.dsh_app.phone.PhoneRegistry
 import io.github.ccch1mneyyy.dsh_app.phone.PhoneTasks
 
@@ -128,8 +129,12 @@ class PhoneA11yService : AccessibilityService() {
         if (event != null && event.eventType in setOf(AccessibilityEvent.TYPE_VIEW_CLICKED,
                 AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED, AccessibilityEvent.TYPE_VIEW_SCROLLED,
                 AccessibilityEvent.TYPE_TOUCH_INTERACTION_START)) companionActivityAt = android.os.SystemClock.uptimeMillis()
-        // A keyboard coming or going moves the control clear of it.
-        if (event?.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) overlay?.onWindowsChanged()
+        // A keyboard coming or going moves the control and the pet clear of it; the keyguard coming
+        // or going is a window too, and the pet leaves while it is up.
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+            overlay?.onWindowsChanged()
+            PetOverlay.onObstaclesChanged()
+        }
         // Window changes retire both coordinates and screenshot authorization. Only an identified
         // window of this service's controls is exempt; switching to DSH itself is still a transition.
         if (event != null && invalidatesVisual(event.eventType) {

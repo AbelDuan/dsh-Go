@@ -13,6 +13,13 @@ data class SafeArea(
     val bottom: Int,
 )
 
+/**
+ * The same area with its bottom raised to a keyboard's top ([imeTop], null when none shows): what
+ * dragging and the ask bar may use, so neither ends up under the keyboard.
+ */
+fun SafeArea.aboveKeyboard(imeTop: Int?): SafeArea =
+    if (imeTop == null) this else copy(bottom = maxOf(bottom, screenH - imeTop))
+
 enum class Side { LEFT, RIGHT }
 
 /** Where the pet rests: an edge, and how far down the usable height (0 top … 1 bottom). */
@@ -84,6 +91,16 @@ object EdgeSnap {
         val hi = maxY(area, h, margin)
         val f = if (hi <= lo) 0f else ((y - lo).toFloat() / (hi - lo)).coerceIn(0f, 1f)
         return Dock(side, f)
+    }
+
+    /**
+     * [at] raised so a keyboard whose top is [imeTop] never covers a window [h] tall: only when the
+     * keyboard would reach it, and never above [floor]. With no keyboard the place is unchanged.
+     */
+    fun aboveIme(at: WindowPos, h: Int, imeTop: Int?, margin: Int, floor: Int): WindowPos {
+        val ime = imeTop ?: return at
+        val limit = ime - h - margin
+        return if (at.y <= limit) at else WindowPos(at.x, maxOf(floor, limit))
     }
 
     /** Window position for [dock]. [marginX] is the gap to the docked edge, [margin] the one above and below. */

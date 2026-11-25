@@ -330,7 +330,7 @@ internal class PetTaps(private val timeoutMs: Long, private val slop: Float) {
  *   or always with 「一直显示」;
  * - hides while the app is on screen, during a phone-control task (its own status pill is up),
  *   and for the rest of the day after 「今天不再显示」;
- * - pauses with the screen off or locked;
+ * - leaves while the screen is locked, pauses with it off;
  * - collapses [IDLE_COLLAPSE_MS] after the last thing going on (not with 「一直显示」);
  * - stays lit while active; after activity ends, dims after [DIM_AFTER_MS] idle unless a touch
  *   or a new call for attention restarts the wait: whole where it docks, at [DIM_ALPHA], animation paused;
@@ -349,6 +349,9 @@ class OverlayMachine {
     /** The pack for the pushed id is loaded. */
     var hasPet = false
     var interactive = true
+
+    /** The lock screen is up: the pet stays away (its picture on a locked screen is a leak, not company). */
+    var locked = false
     var phoneTask = false
     var dshService = false
 
@@ -445,9 +448,12 @@ class OverlayMachine {
 
         val wakeAt = listOfNotNull(
             bubble?.untilMs,
-            if (!alwaysShow && !push.active && lastActiveAt > 0) lastActiveAt + IDLE_COLLAPSE_MS else null,
+            if (!alwaysShow && !push.active && recent) lastActiveAt + IDLE_COLLAPSE_MS else null,
         ).minOrNull()
         if (phoneTask) return hidden("phone task", keepAlive = true, wakeAt = wakeAt)
+        // Locked goes before screen-off: a locked screen is usually also dark, and there the pet
+        // leaves outright rather than pausing behind the keyguard.
+        if (locked) return hidden("locked")
         if (!interactive) return Decision(Visibility.PAUSED, false, !dshService, bubble, wakeAt, "screen off")
         return Decision(Visibility.SHOWN, false, !dshService, bubble, wakeAt, if (push.active) "active" else "recent")
     }

@@ -73,6 +73,19 @@ class OverlayMachineTest {
         assertEquals(t0 + collapse, d.wakeAt)
     }
 
+    @Test fun heldAskStopsSchedulingAnExpiredCollapse() {
+        val m = ready()
+        m.onTouch(t0)
+        m.holding = true
+        assertEquals(t0 + collapse, m.decide(t0 + collapse - 1).wakeAt)
+        val held = m.decide(t0 + collapse)
+        assertEquals(Visibility.SHOWN, held.visibility)
+        assertFalse(held.dimmed)
+        assertNull(held.wakeAt)
+        m.holding = false
+        assertEquals(Visibility.HIDDEN, m.decide(t0 + collapse + 1).visibility)
+    }
+
     @Test fun alwaysShowNeverCollapses() {
         val m = ready().apply { alwaysShow = true }
         val d = m.decide(t0 + 10 * collapse)
@@ -89,6 +102,20 @@ class OverlayMachineTest {
         assertEquals(Visibility.PAUSED, d.visibility)
         assertTrue(d.ownService)
         m.interactive = true
+        assertEquals(Visibility.SHOWN, m.decide(t0 + 2).visibility)
+    }
+
+    @Test fun theLockScreenTakesThePetAway() {
+        val m = ready()
+        m.onPush(push("thinking"), t0)
+        assertEquals(Visibility.SHOWN, m.decide(t0).visibility)
+        m.locked = true
+        val d = m.decide(t0 + 1)
+        // Away, not paused: the window is removed, so nothing of it shows on the keyguard.
+        assertEquals(Visibility.HIDDEN, d.visibility)
+        assertEquals("locked", d.why)
+        assertFalse(d.ownService)
+        m.locked = false
         assertEquals(Visibility.SHOWN, m.decide(t0 + 2).visibility)
     }
 

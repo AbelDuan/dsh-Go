@@ -7,6 +7,7 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.app.Activity
 import android.app.Application
+import android.accessibilityservice.AccessibilityWindowInfo
 import android.app.KeyguardManager
 import android.app.Notification
 import android.app.NotificationChannel
@@ -25,6 +26,7 @@ import android.content.res.Configuration
 import android.content.res.Resources
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.hardware.display.DisplayManager
 import android.media.AudioManager
 import android.net.Uri
@@ -105,6 +107,8 @@ internal object PetOverlay {
     /** Her menu's 「隐藏一小时」. */
     private const val HIDE_MS = 60 * 60_000L
     private const val POLL_MS = 2_000L
+    /** Reading the keyboard's place is a binder call: at most this often. */
+    private const val IME_REFRESH_MS = 250L
     private const val OPEN_CHECK_MS = 1_500L
     private const val MENU_MS = 8_000L
     private const val TARGET_DP = 56f
@@ -163,6 +167,9 @@ internal object PetOverlay {
     private var petView: PetView? = null
     private var petParams: WindowManager.LayoutParams? = null
     private var systemShown = true
+    /** The keyboard's top on screen while one shows; [IME_REFRESH_MS] at most stale. */
+    private var imeTop: Int? = null
+    private var imeReadAt = 0L
     private var companionResident = false
     private var companionName = "Companion"
     private var companionBubble: PetBubble? = null
@@ -342,8 +349,8 @@ internal object PetOverlay {
 
     /** A real window acknowledgement, never an enqueue-as-shown receipt. */
     fun companionLine(id: String?, text: String?, emotion: String?, speaking: Boolean): Boolean {
-        if (!companionResident || !interactive() || machine.appForeground || capture.inFlight ||
-            petView?.isAttachedToWindow != true || !systemShown || machine.bubbles.current(now())?.ask != null ||
+        if (!companionResident || machine.appForeground || capture.inFlight || petView?.isAttachedToWindow != true ||
+            !systemShown || !interactive() || machine.bubbles.current(now())?.ask != null ||
             answerState.bubbleId != null) return false
         val words = PetPush.clean(text, 600) ?: return false
         // One bubble per reply: a streaming reply's later words go into the bubble already out.
@@ -493,11 +500,13 @@ internal object PetOverlay {
             return
         }
         refreshCanDraw()
+        refreshIme()
         machine.canHost = overlayHost() != OverlayHost.NONE
         machine.hasPet = loaded != null && loadedKey == packKey(machine.last)
         machine.phoneTask = PhoneControl.peek()?.foregroundLine() != null
         machine.dshService = DshService.isRunning
         machine.interactive = interactive()
+        machine.locked = locked()
         machine.holding = askView != null || menuView != null || answerState.bubbleId != null || returnAsk ||
             (companionBubble?.untilMs ?: 0) > now()
         val t = now()
@@ -516,8 +525,11 @@ internal object PetOverlay {
                 petView?.cancelInteraction()
                 stopLoop()
                 stopCompanion()
+                // What held her out is gone with the screen: decide again, so the service can go.
+                val held = menuView != null || askView != null
                 dismissMenu()
                 removeAsk()
+                if (held) main.post(evaluateRunnable)
             }
             Visibility.SHOWN -> {
                 val before = lastAdd
@@ -581,7 +593,7 @@ internal object PetOverlay {
         if (!alive(ticket)) return
         stopLoop()
         slideAnim?.cancel()
-        val area = safeArea()
+        val area = usableArea()
         // Full-body default, within both the readback cap and the existing dock margins.
         val geometry = CompanionFloatGeometry.fit(
             v.context.dp(PetSize.dpOf(machine.last?.size) * 4),
@@ -601,7 +613,7 @@ internal object PetOverlay {
                     val wanted = CompanionFloatGeometry.move(previous, before, next)
                     v.setCompanionBounds(next)
                     val pos = when {
-                        dragging -> EdgeSnap.clampDrag(wanted.x, wanted.y, next.width, next.height, safeArea())
+                        dragging -> EdgeSnap.clampDrag(wanted.x, wanted.y, next.width, next.height, usableArea())
                         // Her first picture docks by what she draws, so she leans on the side; after
                         // that the viewport stays put and only the crop follows her (no jitter).
                         box != null && !companionDocked -> {
@@ -686,10 +698,19 @@ internal object PetOverlay {
      * it leans on the side ([EdgeSnap.hug]), half past it while tucked; the pixel pet keeps room
      * for every frame it may play.
      */
-    private fun dockedRest(v: PetView, area: SafeArea = safeArea()): WindowPos =
+    private fun dockedRest(v: PetView, area: SafeArea = safeArea()): WindowPos {
         // On the very edge: no sideways gap, and under the camera cutout if the edge runs there.
-        if (v.companionGeometry == null) EdgeSnap.position(dock, v.reach, area, edge(v.context), marginX = 0)
-        else EdgeSnap.hug(dock, v.frame.width, v.frame.height, area, edge(v.context), 0, tucking.tucked)
+        val at = if (v.companionGeometry == null) EdgeSnap.position(dock, v.reach, area, edge(v.context), marginX = 0)
+            else EdgeSnap.hug(dock, v.frame.width, v.frame.height, area, edge(v.context), 0, tucking.tucked)
+        return clearOfIme(at, v.frame.height, area)
+    }
+
+    /**
+     * The dock, lifted so a keyboard never covers the pet: only when the keyboard reaches it, so
+     * with none (or one below the dock) the pet keeps the place it had and comes back to it after.
+     */
+    private fun clearOfIme(at: WindowPos, h: Int, area: SafeArea): WindowPos =
+        EdgeSnap.aboveIme(at, h, imeTop, edge(app), area.top + edge(app))
 
     /** Slides her float in or out of the edge as [CompanionTuck] says. */
     private fun tuck(bubble: PetBubble?, t: Long) {
@@ -979,7 +1000,7 @@ internal object PetOverlay {
         p.width = next.width
         p.height = next.height
         placeRest(v, p, rest)
-        if (dragging) EdgeSnap.clampDrag(p.x, p.y, p.width, p.height, safeArea()).let { p.x = it.x; p.y = it.y }
+        if (dragging) EdgeSnap.clampDrag(p.x, p.y, p.width, p.height, usableArea()).let { p.x = it.x; p.y = it.y }
         update(v, p)
     }
 
@@ -1243,6 +1264,66 @@ internal object PetOverlay {
         }
     }
 
+    /**
+     * Where the keyboard's top is now, or null when none shows. Read from the accessibility
+     * service's window list when that service runs (the same source phone control uses for the
+     * capsule, so a floating or split keyboard's top counts), else from this app's window metrics
+     * while one of its own windows has the keyboard.
+     */
+    private fun refreshIme() {
+        val t = now()
+        if (t - imeReadAt < IME_REFRESH_MS) return
+        imeReadAt = t
+        imeTop = if (PhoneA11yService.instance != null) imeTopFromService() else imeTopFromMetrics()
+    }
+
+    private fun imeTopFromService(): Int? {
+        val svc = PhoneA11yService.instance ?: return null
+        val r = Rect()
+        return try {
+            svc.windows.firstNotNullOfOrNull { w ->
+                if (w.type != AccessibilityWindowInfo.TYPE_INPUT_METHOD) return@firstNotNullOfOrNull null
+                w.getBoundsInScreen(r)
+                r.top.takeIf { !r.isEmpty }
+            }
+        } catch (_: Exception) {
+            // The service went away between the two calls: no keyboard known, which is what it now is.
+            null
+        }
+    }
+
+    private fun imeTopFromMetrics(): Int? {
+        if (Build.VERSION.SDK_INT < 30) return null
+        val m = (wm ?: return null).currentWindowMetrics
+        val i = m.windowInsets.getInsetsIgnoringVisibility(WindowInsets.Type.ime())
+        return if (i.bottom > 0) m.bounds.height() - i.bottom else null
+    }
+
+    /**
+     * A window came or went (the keyboard, the keyguard): measure again, sit where the dock now
+     * is, and let the state machine decide again. Called from the accessibility service's events.
+     */
+    fun onObstaclesChanged() {
+        if (!initialized) return
+        val was = imeTop
+        imeReadAt = 0L
+        refreshIme()
+        if (imeTop != was) seat()
+        main.post(evaluateRunnable)
+    }
+
+    /** Slides the docked pet to where it rests now (a keyboard came or went); not while it is held. */
+    private fun seat() {
+        val v = petView ?: return
+        val p = petParams ?: return
+        if (dragging || askView != null || menuView != null || companionView != null) return
+        if (!alive(petTicket)) return
+        slide(v, p, dockedRest(v)) { }
+    }
+
+    /** The screen as dragging and the ask bar may use it: never under a keyboard that is up. */
+    private fun usableArea(): SafeArea = safeArea().aboveKeyboard(imeTop)
+
     // ---- touch ----------------------------------------------------------------------------------
 
     private fun petListener(ticket: OverlayWindowOwner.Ticket) = object : PetView.Listener {
@@ -1254,7 +1335,10 @@ internal object PetOverlay {
             if (!alive(ticket)) return
             val v = petView ?: return
             val p = petParams ?: return
-            val area = safeArea()
+            // Where the keyboard is matters for the rest of the gesture: measure it once now.
+            imeReadAt = 0L
+            refreshIme()
+            val area = usableArea()
             // Picked up from the edge (tucked, or still partly past it on the way out): at the
             // untucked dock first, else the drag clamps her on screen and she stays put until
             // the finger has covered the hidden part. Picked up while out, she stays where she is.
@@ -1284,8 +1368,8 @@ internal object PetOverlay {
             val v = petView ?: return
             val p = petParams ?: return
             val s = dragStart ?: return
-            val area = safeArea()
-            // The window, lifted pose and all, stays whole on screen.
+            val area = usableArea()
+            // The window, lifted pose and all, stays whole on screen, and never over the keyboard.
             val pos = EdgeSnap.carry(s, dx, dy, v.frame, area)
             p.x = pos.x
             p.y = pos.y
@@ -1570,7 +1654,7 @@ internal object PetOverlay {
         val f = loaded?.frames ?: return null
         val rest = restPos(pv, pp)
         return EdgeSnap.bubble(
-            f.body.at(rest), f.art(pv.shown).at(rest), dock.side, card.first, card.second, tailPx, safeArea(),
+            f.body.at(rest), f.art(pv.shown).at(rest), dock.side, card.first, card.second, tailPx, usableArea(),
             gap = ctx.dp(4f), margin = edge(ctx), tailInset = ctx.dp(20f),
         )
     }
@@ -1975,11 +2059,11 @@ internal object PetOverlay {
         view.setState(problem = true, sending = askDraftState.sending)
         view.input.setSelection(view.input.length())
         view.setTarget(null, switchShown = false, on = fresh)
-        val area = safeArea()
+        val area = usableArea()
         val gap = ctx.dp(8f)
         val margin = edge(ctx)
         val at = if (pv.companionGeometry != null) petParams?.let { untuckNow(pv, it); restPos(pv, it) } ?: return
-            else EdgeSnap.position(dock, pv.reach, area, margin, marginX = 0)
+            else clearOfIme(EdgeSnap.position(dock, pv.reach, safeArea(), margin, marginX = 0), pv.frame.height, safeArea())
         val body = f.body.at(at)
         // Her float's window is just what she draws, so the bar sits right beside her; the pixel
         // pet's keeps clear of every frame it may play.
@@ -2095,7 +2179,7 @@ internal object PetOverlay {
         // Use the laid-out position, not params.y (which may already contain a pending move).
         val location = IntArray(2).also(v::getLocationOnScreen)
         val y = when {
-            overlap > 0 -> AskPlace.lift(askY, location[1], overlap, ctx.dp(8f), safeArea(), edge(ctx))
+            overlap > 0 -> AskPlace.lift(askY, location[1], overlap, ctx.dp(8f), usableArea(), edge(ctx))
             visible -> p.y
             else -> askY
         }
@@ -2338,16 +2422,18 @@ internal object PetOverlay {
 
     // ---- system signals -------------------------------------------------------------------------
 
-    private fun interactive(): Boolean {
-        val pm = app.getSystemService(PowerManager::class.java)
-        val km = app.getSystemService(KeyguardManager::class.java)
-        return (pm?.isInteractive != false) && (km?.isKeyguardLocked != true)
-    }
+    /** The screen is on. Whether it is locked is [locked]'s question: locked hides the pet, off pauses it. */
+    private fun interactive(): Boolean = app.getSystemService(PowerManager::class.java)?.isInteractive != false
+
+    /** The keyguard is up: no pet on the lock screen. */
+    private fun locked(): Boolean = app.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
 
     private val screen = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == PowerManager.ACTION_POWER_SAVE_MODE_CHANGED && companionEndpoint == null) return
             if (intent.action == Intent.ACTION_SCREEN_OFF || !interactive()) capture.invalidate()
+            // The keyboard goes with the screen too; its place is re-measured rather than kept.
+            refreshIme()
             evaluate()
         }
     }

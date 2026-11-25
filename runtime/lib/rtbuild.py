@@ -897,6 +897,8 @@ def dsh_drop_reason(rel, abi, prune_dev):
     if "node-pty/third_party/conpty" in rel:
         return "foreign-binary"
     if prune_dev:
+        if rel.startswith("node_modules/@agentclientprotocol/sdk/dist/") and rel.endswith(".test.js"):
+            return "package-tests"
         if rel.startswith((
                 "node_modules/@mixmark-io/domino/test/",
                 "node_modules/gaxios/build/esm/test/",
@@ -1741,9 +1743,7 @@ def launch_template():
         "pnpm_config_registry=" + NPMMIRROR,
         "UV_USE_IO_URING=0",
         "NARB_DISABLE_NATIVE_CACHE=1",
-        # Node drops a connect attempt after 250 ms; a route whose RTT is above that
-        # window (slow international egress) then fails every attempt as ETIMEDOUT.
-        "NODE_OPTIONS=--dns-result-order=ipv4first --network-family-autoselection-attempt-timeout=1500",
+        "NODE_OPTIONS=--dns-result-order=ipv4first",
     ]
     argv = [
         "{NATIVE_LIB_DIR}/libproot.so",
