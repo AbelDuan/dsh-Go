@@ -49,18 +49,18 @@ internal object RootRelay {
         val binary = materialise(context)
         val token = token(context)
         val script = buildString {
-            append("R=").append(DIR).append('\n')
-            append("mkdir -p $R; chmod 700 $R\n")
-            append("cp '").append(binary.absolutePath).append("' $R/dsr\n")
-            append("chmod 700 $R/dsr\n")
-            append("printf '%s\\n' ").append(token).append(" > $R/token\n")
-            append("chmod 600 $R/token\n")
+            append("mkdir -p ").append(DIR).append("; chmod 700 ").append(DIR).append('\n')
+            append("cp '").append(binary.absolutePath).append("' ").append(DIR).append("/dsr\n")
+            append("chmod 700 ").append(DIR).append("/dsr\n")
+            append("printf '%s\\n' ").append(token).append(" > ").append(DIR).append("/token\n")
+            append("chmod 600 ").append(DIR).append("/token\n")
             if (guest.isDirectory || guest.mkdirs()) {
                 append("printf '%s\\n' ").append(token).append(" > '").append(guestToken.absolutePath).append("'\n")
                 append("chmod 600 '").append(guestToken.absolutePath).append("'\n")
                 append("printf '%s\\n' ").append(PORT).append(" > '").append(File(guest, "port").absolutePath).append("'\n")
             }
-            append("pgrep -f \"$R/dsr\" >/dev/null 2>&1 || ( setsid nohup $R/dsr >/dev/null 2>&1 & )\n")
+            append("pgrep -f '").append(DIR).append("/dsr' >/dev/null 2>&1 || ( setsid nohup ")
+                .append(DIR).append("/dsr >/dev/null 2>&1 & )\n")
         }
         val process = ProcessBuilder("su", "-c", script).redirectErrorStream(true).start()
         Thread({ runCatching { process.inputStream.use { it.readBytes() } } }, "dsh-root-relay-log").apply {
