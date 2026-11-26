@@ -10,8 +10,14 @@
 | `main` | 上游镜像，只同步，不放任何本地修改 | `5bb72e26e` |
 | `custom` | 默认分支 = `main` + 本 fork 的修复 | `6e55c0381`（含 1.1–1.14 全部修复） |
 
-**上游状态**：上游 `main` = `dc2874fbb`，`custom` **落后上游 7 个提交 / 领先 46 个**。
-下次用户说「合并上游并出包」时照 §2.1 跑（sync 任务会先把 `main` 快进再合 `custom`）。
+**上游状态**：2026-11-26 18:09 已把上游 `dc2874fbb` 合进 `custom`（合并提交 `89023f5ba`，无冲突，
+上游带来 47 个文件、`custom` 领先上游 48 个提交、落后 0）。本文件之后若有只改 `FORK.md` 的提交，
+`custom` 会再往前走一格，`behind_by` 仍是 0。
+
+> **硬规则（用户 2026-11-26）**：**动任何代码之前先查上游**。先
+> `GET /repos/AbelDuan/dsh-Go/compare/<upstream-main>...<custom>` 看 `behind_by`，
+> 大于 0 就先跑 sync（§2.1 第 1 步），合并干净之后再叠本地修复。
+> 不要在落后的基线上继续改——那样每次合并都要把同一处冲突解第二遍。
 
 **本机装机**：`versionCode 11261748` / `versionName 1.4.0`，证书 `CN=dsh-go`
 （SHA-256 `acd9272d…d49908`），APK 归档 `/sdcard/Download/DSH-Go/builds/dsh-Go/11261748/`。
@@ -37,7 +43,7 @@
 | 1.11 | root 中继内置 | `assets/rootrelay/dsr`、`phone/shell/RootRelay.kt`、`DshService.kt` | `DshService.onStartCommand` 调 `RootRelay.ensure(this)`；铺 `/data/local/tmp/dsh-root/`、起 `127.0.0.1:37121`、token 写回 guest | 11260045 |
 | 1.12 | 固定签名 | `tooling/keys/dsh-go-release.keystore`(+`password.txt`,`README.md`) | alias `dshgo` / `CN=dsh-go` / SHA-256 `acd9272d…d49908`；`dsh-go-ci` 路径写 `$(pwd)/tooling/keys/...`（job 级 cwd 是 `dsh-Go`） | 11251605+ |
 | 1.13 | 全屏让位 | `PhoneA11yService.kt`、`pet/ImmersiveWatch.kt`、`PetOverlay.kt`、`OverlayPolicy.kt` | 三判据（整屏=某显示器 realMetrics / 无顶部状态栏窗口 / 无 IME）+ **350 ms 去抖**；`rule()` 里 `asking = bubble!=null \|\| holding`（**不含** `calling`），`hidden("immersive")` 放在 `phoneTask` 前 | 11261701 |
-| 1.14 | 光晕变细变淡 | `phone/a11y/EdgeBeamModel.kt`、`EdgeBeamModelTest.kt` | `WIDTH_DP=8.4f`、`LINE_DP=1.8f`、`CORE_DP=1.5f`、`BLOOM_DP=15.6f`、`CORE_REST=0.63f`、`BLOOM_REST=0.42f`；测试断言同步 8.4f | 11261748 |
+| 1.14 | 光晕变细变淡 | `phone/a11y/EdgeBeamModel.kt`、`EdgeBeamModelTest.kt` | `WIDTH_DP 8.4f`、`LINE_DP 1.8f`、`CORE_DP 1.5f`、`BLOOM_DP 15.6f`、`DARK.rim 0.63f`、`DARK.bloom 0.42f`；测试断言同步 8.4f | 11261748 |
 
 ---
 
@@ -277,15 +283,21 @@
 
 - **症状**：光晕像镶了一条实线，太粗太实；折叠屏合起来时尤其明显。
 - **改动**（`phone/a11y/EdgeBeamModel.kt`）：所有宽度取原值 60%，峰值不透明度取原值 70%。
+  下表的“现”列就是代码里的字面量，合并时直接用它们 grep 核对：
 
-  | 常量 | 原值 | 新值 | 含义 |
+  | 代码里的写法 | 现 | 原 | 含义 |
   | --- | --- | --- | --- |
-  | `WIDTH_DP` | 14f | **8.4f** | 光带整体宽度 |
-  | `LINE_DP` | 3f | **1.8f** | 常亮细线 |
-  | `CORE_DP` | 2.5f | **1.5f** | 核心描边 |
-  | `BLOOM_DP` | 26f | **15.6f** | 外发光扩散 |
-  | `CORE_REST` | 0.9f | **0.63f** | 核心峰值不透明度 |
-  | `BLOOM_REST` | 0.6f | **0.42f** | 外发光峰值不透明度 |
+  | `const val WIDTH_DP` | **8.4f** | 14f | 光带整体宽度 |
+  | `const val LINE_DP` | **1.8f** | 3f | 常亮细线 |
+  | `const val CORE_DP` | **1.5f** | 2.5f | 核心描边 |
+  | `const val BLOOM_DP` | **15.6f** | 26f | 外发光扩散 |
+  | `Preset.DARK.rim` | **0.63f** | 0.9f | 暗色核心峰值不透明度 |
+  | `Preset.DARK.bloom` | **0.42f** | 0.6f | 暗色外发光峰值 |
+  | `Preset.LIGHT.rim` | **0.52f** | — | 亮色核心峰值 |
+  | `Preset.LIGHT.bloom` | **0.35f** | — | 亮色外发光峰值 |
+
+  注意峰值只存在于 `Preset` 里（`Preset(rim = …, line = …, core = …, bloom = …)`），
+  **没有** `CORE_REST` / `BLOOM_REST` 这类单独的常量名，按名字 grep 会空手而归，按数值 grep。
 
   `SQUARE_BELOW_DP` 故意留在 **14f**：它是 §1.7 的归零阈值，是对着**旧宽度**调出来的，
   跟着 `WIDTH_DP` 一起缩会让外屏两个直角角重新归零失效（28 px 的角不再被当作方角）。
@@ -337,7 +349,9 @@ git push origin custom
 3. `EdgeBeam*` 里保留：`cornersPx` 的 `FloatArray(4)`、角度场周长、`h.x - ax < h.y - ay` 的判边条件、
    `cornersPx` 里"小于一个光带宽的半径归 0"（§1.7），以及 `EdgeBeam.kt` 里 `r < 0.5` 用平滑最小值
    `min(dx,dy) − 0.7w·ln(1+e^{−|dx−dy|/0.7w})` 的那条分支。缺一个：归零但不平滑 → 折痕；平滑但不归零 → 缺口。
-   另外六个观感常量按 §1.14 取值（`8.4 / 1.8 / 1.5 / 15.6 / 0.63 / 0.42`），`SQUARE_BELOW_DP` 保持 `14f` 不跟缩。
+   另外观感常量按 §1.14 取值（`WIDTH_DP 8.4f` / `LINE_DP 1.8f` / `CORE_DP 1.5f` / `BLOOM_DP 15.6f` /
+   `Preset.DARK.rim 0.63f` / `Preset.DARK.bloom 0.42f`），`SQUARE_BELOW_DP` 保持 `14f` 不跟缩。
+   峰值没有独立常量名，只能按数值核对。
 4. `pet/OverlayPolicy.kt` 里保留 `locked` 字段、`rule()` 中 `locked → hidden("locked")` 在 `!interactive`
    之前；`PetOverlay` 里保留 `interactive()`（只判屏幕）与 `locked()`（判钥匙锁）分开。
 5. `PetOverlay` 的键盘避让：`refreshIme()` 单一来源、`clearOfIme()`/`usableArea()`、
@@ -433,6 +447,7 @@ CI 报 `CompanionScreenBridge.kt:118 Too many arguments`。
 
 | 时间 | 上游 | 结果 |
 | --- | --- | --- |
+| 2026-11-26 | `dc2874fbb`（7 提交 / 47 文件） | 合并提交 `89023f5ba`，**无冲突**；合并后按 §2 清单逐条 grep 复核：`composer_strip.dart` 仍是 1 个 `AnimatedSwitcher(`、`EdgeBeamModel.kt` 的 8.4/14/1.8 + `DARK.rim 0.63` 在、`EdgeBeam.kt` 的 `float4 radii` 与 `r < 0.5` 在、`computeImmersive`/`refreshImmersive`/`invalidateOverlayWindowContext` 在、`OverlayPolicy` 的 `immersive`/`"locked"`/`asking` 在、`proot-dns.mjs` 与 `rtbuild.py` 的 1500 在 |
 | 2026-11-26 | 无（本 fork 自身） | `1.14` 边缘光效整体变细变淡（宽度 60%、峰值 70%，归零阈值不动）；装机 `11261748` |
 | 2026-11-26 | 无（本 fork 自身） | `1.13` 宠物全屏让位（edge-to-edge 下用「整屏 + 状态栏消失 + 无键盘」判沉浸，350 ms 去抖）；装机 `11261701` |
 | 2026-11-25 | 无（本 fork 自身） | `1.10` 手机壳层三项（中断自动解除 / 内置 root shell / shell 尊重「始终允许」）、`1.11` root 中继内置进 APK、`1.12` 固定签名入库；装机 `11260045`（1.4.0） |
