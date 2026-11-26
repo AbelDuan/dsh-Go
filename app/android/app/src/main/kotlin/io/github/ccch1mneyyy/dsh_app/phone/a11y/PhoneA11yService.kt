@@ -27,6 +27,7 @@ import io.github.ccch1mneyyy.dsh_app.phone.PhoneTasks
 import io.github.ccch1mneyyy.dsh_app.pet.ImmersiveWatch
 import android.view.accessibility.AccessibilityWindowInfo
 import android.graphics.Rect
+import android.util.DisplayMetrics
 
 /**
  * DSH's accessibility service (same process as the app). While connected it is the MAIN
@@ -156,36 +157,52 @@ class PhoneA11yService : AccessibilityService() {
      * it. Screens with a status bar, a split screen or a floating window are not full screen.
      */
     private fun refreshImmersive() {
-        val metrics = resources.displayMetrics
         val list = try {
             windows
         } catch (_: Exception) {
             emptyList<AccessibilityWindowInfo>()
         }
-        // Edge-to-edge is the default since Android 15, so the app window starts at 0,0 and fills
-        // the screen on a launcher or a chat app too. What actually tells a full-screen player
-        // apart is that the system bar windows are gone — they are windows as well, and hiding
-        // them removes them from this list.
-        var statusBarVisible = false
+        val app = list.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.isActive }
+        val appRect = Rect()
+        app?.getBoundsInScreen(appRect)
+
+        // Split screen, a floating window or picture-in-picture all make the active window smaller
+        // than a screen, so compare against every attached display: a folding phone has two very
+        // different sizes and the active one is the one that has to match.
+        @Suppress("DEPRECATION")
+        val screens = getSystemService(DisplayManager::class.java)?.displays.orEmpty().map { d ->
+            DisplayMetrics().also { d.getRealMetrics(it) }
+        }
+        val wholeScreen = app != null && screens.any { m ->
+            appRect.left <= 1 && appRect.top <= 1 &&
+                appRect.width() >= m.widthPixels - 1 && appRect.height() >= m.heightPixels - 1
+        }
+
+        // Edge-to-edge is the default since Android 15, so every app window reaches the screen
+        // edges; what a full-screen, no-distraction app also does is hide the system bars, and a
+        // hidden bar leaves the window list.
+        var statusBar = false
+        var inputMethod = false
         val described = StringBuilder()
         for (w in list) {
             val r = Rect()
             w.getBoundsInScreen(r)
             described.append(w.type).append(':').append(r.flattenToShortString()).append(' ')
-            if (w.type == AccessibilityWindowInfo.TYPE_SYSTEM &&
-                r.top <= 1 && r.width() >= metrics.widthPixels - 1 &&
-                r.height() in 1..(metrics.heightPixels / 8)
-            ) statusBarVisible = true
+            val screen = screens.minByOrNull { Math.abs(it.widthPixels - Math.max(r.width(), 1)) }
+            when (w.type) {
+                AccessibilityWindowInfo.TYPE_SYSTEM -> {
+                    val barHeight = (screen?.heightPixels ?: resources.displayMetrics.heightPixels) / 8
+                    if (r.top <= 1 && r.width() >= (screen?.widthPixels ?: resources.displayMetrics.widthPixels) - 1 &&
+                        r.height() in 1..barHeight
+                    ) statusBar = true
+                }
+                // A keyboard means the person is typing: that is a chat, not an immersive screen.
+                AccessibilityWindowInfo.TYPE_INPUT_METHOD -> inputMethod = true
+            }
         }
-        val app = list.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.isActive }
-        val appRect = Rect()
-        app?.getBoundsInScreen(appRect)
-        val covers = app != null &&
-            appRect.left <= 1 && appRect.top <= 1 &&
-            appRect.width() >= metrics.widthPixels - 1 && appRect.height() >= metrics.heightPixels - 1
-        val immersive = covers && !statusBarVisible
+        val immersive = wholeScreen && !statusBar && !inputMethod
         if (immersive != ImmersiveWatch.immersive) {
-            Log.i(TAG, "immersive=$immersive covers=$covers statusBar=$statusBarVisible windows=[$described]")
+            Log.i(TAG, "immersive=$immersive whole=$wholeScreen statusBar=$statusBar ime=$inputMethod windows=[$described]")
         }
         ImmersiveWatch.report(immersive)
     }
