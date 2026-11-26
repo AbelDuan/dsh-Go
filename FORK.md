@@ -5,10 +5,39 @@
 本仓库只做一件事：**在上游之上叠一组本机（Xiaomi 折叠屏 2608BPX34C / Android 17 / HyperOS 4）的修复**，
 并且让上游更新时可以合并，而不是重新打补丁。
 
-| 分支 | 内容 | 当前 |
+| 分支 | 内容 | 当前（2026-11-26 18:10 核对） |
 | --- | --- | --- |
-| `main` | 上游镜像，只同步，不放任何本地修改 | `5ac52c368`（= 上游 main） |
-| `custom` | 默认分支 = `main` + 本 fork 的修复 | `a7a3593b8`（`main` 的合并提交，含全部修复） |
+| `main` | 上游镜像，只同步，不放任何本地修改 | `5bb72e26e` |
+| `custom` | 默认分支 = `main` + 本 fork 的修复 | `6e55c0381`（含 1.1–1.14 全部修复） |
+
+**上游状态**：上游 `main` = `dc2874fbb`，`custom` **落后上游 7 个提交 / 领先 46 个**。
+下次用户说「合并上游并出包」时照 §2.1 跑（sync 任务会先把 `main` 快进再合 `custom`）。
+
+**本机装机**：`versionCode 11261748` / `versionName 1.4.0`，证书 `CN=dsh-go`
+（SHA-256 `acd9272d…d49908`），APK 归档 `/sdcard/Download/DSH-Go/builds/dsh-Go/11261748/`。
+
+---
+
+## 0. 速查：14 条修复一张表
+
+后续合并/改代码时先看这张表，细节再翻 §1 对应小节。**「不变量」是合并时绝不能丢的东西。**
+
+| # | 主题 | 关键文件 | 不变量 / 当前值 | 装机 |
+| --- | --- | --- | --- | --- |
+| 1.1 | 状态条灰闪 | `app/lib/ui/plugins/native/composer_strip.dart` | 文件里 `AnimatedSwitcher(` **恰好 1 处**（外层那层已删） | 11241431+ |
+| 1.2 | 光效四角 + 折痕 | `phone/a11y/EdgeBeamModel.kt`、`EdgeBeam.kt` | `cornersPx` 返回 `FloatArray(4)`；角度场周长 `perimeter·atan(x,−y)/2π`；判边用 `h.x−ax < h.y−ay`；AGSL `uniform float4 radii` | 11241431+ |
+| 1.3 | 换屏跑屏 | `pet/PetOverlay.kt`、`phone/a11y/PhoneA11yService.kt` | `onConfigurationChanged` 清 `appWindowContext` / `invalidateOverlayWindowContext()` | 11241539+ |
+| 1.4 | 宠物吸附 | `pet/PetOverlay.kt`、`EdgeSnap.kt`、`PetView.kt` | `safeArea()` 只取 `systemBars()`；停靠 `marginX=0`；按**画面**中心分左右（`sideFor(centerX,…)`）；`FLING_PX_PER_S=700f` | 11241539+ |
+| 1.5 | 文档与 CI | `.github/workflows/build-fixed-apk.yml`、`sync-upstream.yml` | 见 §3（fork 的 Actions 已禁用，实际用 `dsh-go-ci`） | — |
+| 1.6 | 高 RTT 连不上模型 | `runtime/direct/proot-dns.mjs`、`runtime/lib/rtbuild.py` | `net.setDefaultAutoSelectFamilyAttemptTimeout(**1500**)` 与 `NODE_OPTIONS --network-family-autoselection-attempt-timeout=**1500**`，两处必须一致 | 11242035+ |
+| 1.7 | 直角屏缺块/折痕 | `EdgeBeamModel.kt`、`EdgeBeam.kt` | `SQUARE_BELOW_DP=**14f**` 归零（现光带宽 8.4，阈值**故意不缩**）；AGSL `r<0.5` 走 `min(dx,dy)−0.7w·ln(1+e^{−|dx−dy|/0.7w})` | 11242035+ |
+| 1.8 | 键盘挡住宠物 | `pet/EdgeSnap.kt`、`PetOverlay.kt`、`PhoneA11yService.kt` | `SafeArea.aboveKeyboard()` + `EdgeSnap.aboveIme()`；`refreshIme()` 单一来源；`TYPE_WINDOWS_CHANGED` 调 `onObstaclesChanged()` | 合并 d73c679c3 后 |
+| 1.9 | 锁屏仍显示宠物 | `pet/OverlayPolicy.kt`、`PetOverlay.kt` | `locked → hidden("locked")` 排在 `!interactive` **之前**；`interactive()` 只判屏幕、`locked()` 判钥匙锁，两者分开 | 合并 d73c679c3 后 |
+| 1.10 | 手机壳层三项 | `phone/shell/PhoneTaskJournal.kt`、`ShellRootBackend.kt`、`PhoneAndroidShell` | 遗留中断自动 `acknowledgeInterrupted()`；`BACKENDS` 含 `root`；`ShellProtocol.validUid` 认 `uid==0`；`autoApprove` 接「始终允许」 | 11260045 |
+| 1.11 | root 中继内置 | `assets/rootrelay/dsr`、`phone/shell/RootRelay.kt`、`DshService.kt` | `DshService.onStartCommand` 调 `RootRelay.ensure(this)`；铺 `/data/local/tmp/dsh-root/`、起 `127.0.0.1:37121`、token 写回 guest | 11260045 |
+| 1.12 | 固定签名 | `tooling/keys/dsh-go-release.keystore`(+`password.txt`,`README.md`) | alias `dshgo` / `CN=dsh-go` / SHA-256 `acd9272d…d49908`；`dsh-go-ci` 路径写 `$(pwd)/tooling/keys/...`（job 级 cwd 是 `dsh-Go`） | 11251605+ |
+| 1.13 | 全屏让位 | `PhoneA11yService.kt`、`pet/ImmersiveWatch.kt`、`PetOverlay.kt`、`OverlayPolicy.kt` | 三判据（整屏=某显示器 realMetrics / 无顶部状态栏窗口 / 无 IME）+ **350 ms 去抖**；`rule()` 里 `asking = bubble!=null \|\| holding`（**不含** `calling`），`hidden("immersive")` 放在 `phoneTask` 前 | 11261701 |
+| 1.14 | 光晕变细变淡 | `phone/a11y/EdgeBeamModel.kt`、`EdgeBeamModelTest.kt` | `WIDTH_DP=8.4f`、`LINE_DP=1.8f`、`CORE_DP=1.5f`、`BLOOM_DP=15.6f`、`CORE_REST=0.63f`、`BLOOM_REST=0.42f`；测试断言同步 8.4f | 11261748 |
 
 ---
 
@@ -308,6 +337,7 @@ git push origin custom
 3. `EdgeBeam*` 里保留：`cornersPx` 的 `FloatArray(4)`、角度场周长、`h.x - ax < h.y - ay` 的判边条件、
    `cornersPx` 里"小于一个光带宽的半径归 0"（§1.7），以及 `EdgeBeam.kt` 里 `r < 0.5` 用平滑最小值
    `min(dx,dy) − 0.7w·ln(1+e^{−|dx−dy|/0.7w})` 的那条分支。缺一个：归零但不平滑 → 折痕；平滑但不归零 → 缺口。
+   另外六个观感常量按 §1.14 取值（`8.4 / 1.8 / 1.5 / 15.6 / 0.63 / 0.42`），`SQUARE_BELOW_DP` 保持 `14f` 不跟缩。
 4. `pet/OverlayPolicy.kt` 里保留 `locked` 字段、`rule()` 中 `locked → hidden("locked")` 在 `!interactive`
    之前；`PetOverlay` 里保留 `interactive()`（只判屏幕）与 `locked()`（判钥匙锁）分开。
 5. `PetOverlay` 的键盘避让：`refreshIme()` 单一来源、`clearOfIme()`/`usableArea()`、
@@ -403,6 +433,7 @@ CI 报 `CompanionScreenBridge.kt:118 Too many arguments`。
 
 | 时间 | 上游 | 结果 |
 | --- | --- | --- |
+| 2026-11-26 | 无（本 fork 自身） | `1.14` 边缘光效整体变细变淡（宽度 60%、峰值 70%，归零阈值不动）；装机 `11261748` |
 | 2026-11-26 | 无（本 fork 自身） | `1.13` 宠物全屏让位（edge-to-edge 下用「整屏 + 状态栏消失 + 无键盘」判沉浸，350 ms 去抖）；装机 `11261701` |
 | 2026-11-25 | 无（本 fork 自身） | `1.10` 手机壳层三项（中断自动解除 / 内置 root shell / shell 尊重「始终允许」）、`1.11` root 中继内置进 APK、`1.12` 固定签名入库；装机 `11260045`（1.4.0） |
 | 2026-11-25 | `d73c679c3`（175 提交 / 165 文件） | 合并：`OverlayPolicy.kt`、`PetOverlay.kt`、`PhoneA11yService.kt` 三方合并**无冲突**（本 fork 对这三个文件的改动与上游不在同一处）；`EdgeSnap.kt`、`PetView.kt`、`EdgeBeam*`、`composer_strip.dart` 上游未动，直接用 `custom` 版本。合并后新增 §1.8 键盘避让与 §1.9 锁屏不显示 |
