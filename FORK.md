@@ -44,6 +44,7 @@
 | 1.12 | 固定签名 | `tooling/keys/dsh-go-release.keystore`(+`password.txt`,`README.md`) | alias `dshgo` / `CN=dsh-go` / SHA-256 `acd9272d…d49908`；`dsh-go-ci` 路径写 `$(pwd)/tooling/keys/...`（job 级 cwd 是 `dsh-Go`） | 11251605+ |
 | 1.13 | 全屏让位 | `PhoneA11yService.kt`、`pet/ImmersiveWatch.kt`、`PetOverlay.kt`、`OverlayPolicy.kt` | 三判据（整屏=某显示器 realMetrics / 无顶部状态栏窗口 / 无 IME）+ **350 ms 去抖**；`rule()` 里 `asking = bubble!=null \|\| holding`（**不含** `calling`），`hidden("immersive")` 放在 `phoneTask` 前 | 11261701 |
 | 1.14 | 光晕变细变淡 | `phone/a11y/EdgeBeamModel.kt`、`EdgeBeamModelTest.kt` | `WIDTH_DP 8.4f`、`LINE_DP 1.8f`、`CORE_DP 1.5f`、`BLOOM_DP 15.6f`、`DARK.rim 0.63f`、`DARK.bloom 0.42f`；测试断言同步 8.4f | 11261748 |
+| 1.15 | 输入框上方「任务条」 | `ui/chat/dock/tasks_bar.dart`（新）、`chat_dock.dart`、`chat_screen.dart` | `DockTasks.of` 三类（waiting/running/finished）按 kind 再按 `updatedAt` 排；排除当前会话；空时 0 高；`TasksDockSlot` 在 `ChatDock` 列与聊天页 `DockStack` cards 两处都要有 | 装机见 §1.15 |
 
 ---
 
@@ -306,6 +307,32 @@
   两者同比例缩小，比值不变；`DARK.rim` 变小反而更容易满足。
 - **验证**：外屏和内屏各看一眼边缘，应是"贴着边框的一点余光"而不是一条线；直角角（外屏左侧两个）
   仍不缺块、不起折痕。装机 versionCode 11261748。
+
+### 1.15 输入框上方的「任务条」：别的对话在跑 / 等你 / 跑完了
+
+- **症状**：抽屉里给会话行打的三种标记（呼吸点 = 正在跑、`待确认`/`待回答` 文字、静点 = 跑完了没看）
+  只有拉开抽屉才看得见。别的对话跑完、跑挂或卡在确认上时，屏幕上没有任何提示，只能靠翻抽屉发现。
+- **改动**（本 fork 新增，上游没有这块）：
+  - `app/lib/ui/chat/dock/tasks_bar.dart`（新）：
+    - `DockTaskKind { waiting, running, finished }` + `DockTask`（sessionId、title、kind、updatedAt、pending）；
+    - `DockTasks.of(...)` **纯函数**：吃 `sessionsProvider` 的可见行、`pendingInteractionsProvider`、
+      `unreadSessionIdsProvider` 和当前会话 id，排除当前会话，按 kind 再按 `updatedAt` 降序排；
+      `DockTasks.summary(...)` 出「1 个等你 · 2 个在跑 · 3 个跑完了」（为 0 的段不写）；
+    - `TasksBar`：`GlassSurface(tier: chrome)` + `DockRow`，一行高；**只有 1 个任务时点条直接切过去**
+      （`openSessionInChat`），多于 1 个时在原地 `ExpandReveal` 展开列表（最多屏高 34% / 224）；
+    - `DockTaskRow`：`StatusDot`（warn / busy / idle）+ 标题 + 状态字（`PendingKind.label`、
+      `shellCurrentlyRunning`、`shellUnread`）。
+  - `app/lib/ui/chat/dock/chat_dock.dart`：新增 `TasksDockSlot`（0 高时不出），`ChatDock` 列里排在
+    Todo、Goal 之后（最贴输入框）。
+  - `app/lib/ui/chat/chat_screen.dart`：聊天页 `DockStack` 的 cards 里也加 `TasksDockSlot`，位置同上。
+  - l10n：`parts/tasks_bar_{zh,en}.arb` 新增 `dockTasksWaiting/Running/Finished`（`{count}` int）与
+    `dockTasksUntitled`；`app_zh.arb`（template，带 `@meta`）、`app_en.arb` 与 `lib/l10n/gen/` 三个文件同步手改。
+- **合并注意**：块是新的，冲突面只有 `chat_dock.dart` 的 import 与 `ChatDock` 的 children、`chat_screen.dart`
+  `DockStack(cards: [...])` 那一段、以及 l10n 三件套。上游若重写 dock（`dock_stack.dart` / `dock_pill.dart`），
+  保持三件事：①`TasksDockSlot` 在「有内容才出、空时 0 高」的 `DockSlot` 里；②点条 = 单条跳转 / 多条展开；
+  ③行点击走 `openSessionInChat`（不要自己 push 路由，否则返回栈会叠页）。
+- **验证**：开两个对话让一个在跑（或等一次审批），回到另一个对话 —— 输入框上方出现「1 个在跑」；点条展开、
+  点行切到那个对话；全部空闲时条消失。多个任务时右侧三段细条按 kind 分配宽度。
 
 ---
 
