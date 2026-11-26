@@ -157,17 +157,37 @@ class PhoneA11yService : AccessibilityService() {
      */
     private fun refreshImmersive() {
         val metrics = resources.displayMetrics
-        val active = try {
-            windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.isActive }
+        val list = try {
+            windows
         } catch (_: Exception) {
-            null
+            emptyList<AccessibilityWindowInfo>()
         }
-        val rect = Rect()
-        active?.getBoundsInScreen(rect)
-        ImmersiveWatch.report(
-            active != null && rect.left <= 1 && rect.top <= 1 &&
-                rect.width() >= metrics.widthPixels - 1 && rect.height() >= metrics.heightPixels - 1
-        )
+        // Edge-to-edge is the default since Android 15, so the app window starts at 0,0 and fills
+        // the screen on a launcher or a chat app too. What actually tells a full-screen player
+        // apart is that the system bar windows are gone — they are windows as well, and hiding
+        // them removes them from this list.
+        var statusBarVisible = false
+        val described = StringBuilder()
+        for (w in list) {
+            val r = Rect()
+            w.getBoundsInScreen(r)
+            described.append(w.type).append(':').append(r.flattenToShortString()).append(' ')
+            if (w.type == AccessibilityWindowInfo.TYPE_SYSTEM &&
+                r.top <= 1 && r.width() >= metrics.widthPixels - 1 &&
+                r.height() in 1..(metrics.heightPixels / 8)
+            ) statusBarVisible = true
+        }
+        val app = list.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.isActive }
+        val appRect = Rect()
+        app?.getBoundsInScreen(appRect)
+        val covers = app != null &&
+            appRect.left <= 1 && appRect.top <= 1 &&
+            appRect.width() >= metrics.widthPixels - 1 && appRect.height() >= metrics.heightPixels - 1
+        val immersive = covers && !statusBarVisible
+        if (immersive != ImmersiveWatch.immersive) {
+            Log.i(TAG, "immersive=$immersive covers=$covers statusBar=$statusBarVisible windows=[$described]")
+        }
+        ImmersiveWatch.report(immersive)
     }
 
     /**
