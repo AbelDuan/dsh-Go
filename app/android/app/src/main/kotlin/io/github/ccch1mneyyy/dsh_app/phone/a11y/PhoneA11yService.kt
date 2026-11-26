@@ -28,6 +28,8 @@ import io.github.ccch1mneyyy.dsh_app.pet.ImmersiveWatch
 import android.view.accessibility.AccessibilityWindowInfo
 import android.graphics.Rect
 import android.util.DisplayMetrics
+import android.os.Handler
+import android.os.Looper
 
 /**
  * DSH's accessibility service (same process as the app). While connected it is the MAIN
@@ -156,55 +158,85 @@ class PhoneA11yService : AccessibilityService() {
      * screen's edges): that is a video, a game or a full-bleed gallery, and the pet keeps out of
      * it. Screens with a status bar, a split screen or a floating window are not full screen.
      */
+    private val immersiveHandler = Handler(Looper.getMainLooper())
+    private var immersivePending: Runnable? = null
+    private var immersiveCandidate = false
+
+    /**
+     * A window list can be missing the system bars for a moment while the screen is changing, so
+     * entering full screen has to survive a second look 350 ms later; leaving it does not, because
+     * the pet coming back late is worse than it coming back at once.
+     */
     private fun refreshImmersive() {
+        val next = computeImmersive()
+        if (!next) {
+            immersivePending?.let { immersiveHandler.removeCallbacks(it) }
+            immersivePending = null
+            immersiveCandidate = false
+            if (ImmersiveWatch.immersive) ImmersiveWatch.report(false)
+            return
+        }
+        if (next == immersiveCandidate && immersivePending != null) return
+        immersiveCandidate = next
+        immersivePending?.let { immersiveHandler.removeCallbacks(it) }
+        val confirm = Runnable {
+            immersivePending = null
+            val again = computeImmersive()
+            if (again) {
+                Log.i(TAG, "immersive confirmed")
+                ImmersiveWatch.report(true)
+            } else {
+                Log.i(TAG, "immersive dropped: the window list changed again")
+            }
+        }
+        immersivePending = confirm
+        immersiveHandler.postDelayed(confirm, 350)
+    }
+
+    /**
+     * The whole screen, no system bar on top, no keyboard: a video, a game, a full-bleed reader.
+     * Split screen, a floating window or picture-in-picture make the active window smaller than a
+     * screen, so they keep the pet; a launcher or a chat app draws edge to edge but keeps its
+     * status bar, so it keeps the pet too.
+     */
+    private fun computeImmersive(): Boolean {
         val list = try {
             windows
         } catch (_: Exception) {
-            emptyList<AccessibilityWindowInfo>()
+            return false
         }
         val app = list.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.isActive }
+            ?: return false
         val appRect = Rect()
-        app?.getBoundsInScreen(appRect)
+        app.getBoundsInScreen(appRect)
 
-        // Split screen, a floating window or picture-in-picture all make the active window smaller
-        // than a screen, so compare against every attached display: a folding phone has two very
-        // different sizes and the active one is the one that has to match.
         @Suppress("DEPRECATION")
         val screens = getSystemService(DisplayManager::class.java)?.displays.orEmpty().map { d ->
             DisplayMetrics().also { d.getRealMetrics(it) }
         }
-        val wholeScreen = app != null && screens.any { m ->
+        val wholeScreen = screens.any { m ->
             appRect.left <= 1 && appRect.top <= 1 &&
                 appRect.width() >= m.widthPixels - 1 && appRect.height() >= m.heightPixels - 1
         }
+        if (!wholeScreen) return false
 
-        // Edge-to-edge is the default since Android 15, so every app window reaches the screen
-        // edges; what a full-screen, no-distraction app also does is hide the system bars, and a
-        // hidden bar leaves the window list.
         var statusBar = false
         var inputMethod = false
-        val described = StringBuilder()
         for (w in list) {
             val r = Rect()
             w.getBoundsInScreen(r)
-            described.append(w.type).append(':').append(r.toShortString()).append(' ')
-            val screen = screens.minByOrNull { Math.abs(it.widthPixels - Math.max(r.width(), 1)) }
             when (w.type) {
                 AccessibilityWindowInfo.TYPE_SYSTEM -> {
+                    val screen = screens.minByOrNull { Math.abs(it.widthPixels - Math.max(r.width(), 1)) }
+                    val width = screen?.widthPixels ?: resources.displayMetrics.widthPixels
                     val barHeight = (screen?.heightPixels ?: resources.displayMetrics.heightPixels) / 8
-                    if (r.top <= 1 && r.width() >= (screen?.widthPixels ?: resources.displayMetrics.widthPixels) - 1 &&
-                        r.height() in 1..barHeight
-                    ) statusBar = true
+                    if (r.top <= 1 && r.width() >= width - 1 && r.height() in 1..barHeight) statusBar = true
                 }
-                // A keyboard means the person is typing: that is a chat, not an immersive screen.
+                // A keyboard means the person is typing: a chat, not an immersive screen.
                 AccessibilityWindowInfo.TYPE_INPUT_METHOD -> inputMethod = true
             }
         }
-        val immersive = wholeScreen && !statusBar && !inputMethod
-        if (immersive != ImmersiveWatch.immersive) {
-            Log.i(TAG, "immersive=$immersive whole=$wholeScreen statusBar=$statusBar ime=$inputMethod windows=[$described]")
-        }
-        ImmersiveWatch.report(immersive)
+        return !statusBar && !inputMethod
     }
 
     /**
@@ -232,6 +264,8 @@ class PhoneA11yService : AccessibilityService() {
 
     override fun onDestroy() {
         destroyed = true
+        immersivePending?.let { immersiveHandler.removeCallbacks(it) }
+        immersivePending = null
         // l10n:keep agent stop reason
         teardown("无障碍服务已停止")
         super.onDestroy()
