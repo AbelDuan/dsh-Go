@@ -355,6 +355,12 @@ class OverlayMachine {
     var phoneTask = false
     var dshService = false
 
+    /**
+     * Another app covers the whole screen: the pet stays out of it, and comes back only while
+     * something asks the person for an answer (a bubble, an open ask) or calls for attention.
+     */
+    var immersive = false
+
     /** 问一句 is open, or an answer from a bubble is on its way: the pet stays out and lit. */
     var holding = false
 
@@ -450,6 +456,12 @@ class OverlayMachine {
             bubble?.untilMs,
             if (!alwaysShow && !push.active && recent) lastActiveAt + IDLE_COLLAPSE_MS else null,
         ).minOrNull()
+        // A full-bleed app is exactly where a floating body is in the way; a result or a question
+        // is exactly why it has to be seen again. Everything else waits until that app goes away.
+        // Only a bubble or an open ask asks to be seen: `calling` stays true while Dart keeps the
+        // state up, which would never let the pet step back behind a video.
+        val asking = bubble != null || holding
+        if (immersive && !asking) return hidden("immersive", wakeAt = wakeAt)
         if (phoneTask) return hidden("phone task", keepAlive = true, wakeAt = wakeAt)
         // Locked goes before screen-off: a locked screen is usually also dark, and there the pet
         // leaves outright rather than pausing behind the keyguard.

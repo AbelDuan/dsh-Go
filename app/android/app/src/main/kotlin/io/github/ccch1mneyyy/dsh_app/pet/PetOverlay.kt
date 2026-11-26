@@ -507,6 +507,7 @@ internal object PetOverlay {
         machine.dshService = DshService.isRunning
         machine.interactive = interactive()
         machine.locked = locked()
+        machine.immersive = ImmersiveWatch.immersive
         machine.holding = askView != null || menuView != null || answerState.bubbleId != null || returnAsk ||
             (companionBubble?.untilMs ?: 0) > now()
         val t = now()

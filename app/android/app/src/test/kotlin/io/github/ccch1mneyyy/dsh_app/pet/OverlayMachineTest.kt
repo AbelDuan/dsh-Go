@@ -25,6 +25,26 @@ class OverlayMachineTest {
         onForeground(false, t0)
     }
 
+    @Test fun aFullScreenAppKeepsThePetAwayUntilSomethingAsks() {
+        val m = ready()
+        m.alwaysShow = true
+        m.onPush(push("working"), t0 + 1_000)
+        val shown = m.decide(t0 + 2_000)
+        assertEquals(Visibility.SHOWN, shown.visibility)
+        // Another app takes the whole screen (a video): out of the way, even with 一直显示.
+        m.immersive = true
+        val away = m.decide(t0 + 3_000)
+        assertEquals(Visibility.HIDDEN, away.visibility)
+        assertEquals("immersive", away.why)
+        // A result wants to be seen: back for as long as the bubble lasts.
+        m.onPush(push("notification", active = true, bubble = bubble("done-1", t0 + 9_000)), t0 + 4_000)
+        val back = m.decide(t0 + 5_000)
+        assertEquals(Visibility.SHOWN, back.visibility)
+        assertEquals("done-1", back.bubble?.id)
+        // Bubble gone, still full screen: away again.
+        assertEquals(Visibility.HIDDEN, m.decide(t0 + 9_000).visibility)
+    }
+
     @Test fun hiddenWhileTheAppIsOnScreen() {
         val m = OverlayMachine().apply { enabled = true; canHost = true; hasPet = true }
         m.onPush(push("working"), t0)

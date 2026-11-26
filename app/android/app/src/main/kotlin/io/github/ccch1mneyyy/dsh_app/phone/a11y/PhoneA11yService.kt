@@ -24,6 +24,8 @@ import android.view.accessibility.AccessibilityEvent
 import io.github.ccch1mneyyy.dsh_app.pet.PetOverlay
 import io.github.ccch1mneyyy.dsh_app.phone.PhoneRegistry
 import io.github.ccch1mneyyy.dsh_app.phone.PhoneTasks
+import io.github.ccch1mneyyy.dsh_app.pet.ImmersiveWatch
+import android.view.accessibility.AccessibilityWindowInfo
 
 /**
  * DSH's accessibility service (same process as the app). While connected it is the MAIN
@@ -120,6 +122,7 @@ class PhoneA11yService : AccessibilityService() {
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) probe = A11yProbe(this, d, o).also { it.register() }
         Log.i(TAG, "accessibility service connected")
         PhoneRegistry.controlListener?.onAccessibilityChanged(true)
+        refreshImmersive()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -134,12 +137,35 @@ class PhoneA11yService : AccessibilityService() {
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
             overlay?.onWindowsChanged()
             PetOverlay.onObstaclesChanged()
+            refreshImmersive()
+        } else if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            // Switching apps changes the window in front even when no window list update follows.
+            refreshImmersive()
         }
         // Window changes retire both coordinates and screenshot authorization. Only an identified
         // window of this service's controls is exempt; switching to DSH itself is still a transition.
         if (event != null && invalidatesVisual(event.eventType) {
             overlay?.ownsWindow(event.windowId) == true
         }) driver?.windowChanged()
+    }
+
+    /**
+     * A window of another app covers the whole display (its bounds start at 0,0 and reach the
+     * screen's edges): that is a video, a game or a full-bleed gallery, and the pet keeps out of
+     * it. Screens with a status bar, a split screen or a floating window are not full screen.
+     */
+    private fun refreshImmersive() {
+        val metrics = resources.displayMetrics
+        val active = try {
+            windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.isActive }
+        } catch (_: Exception) {
+            null
+        }
+        val bounds = active?.boundsInScreen
+        ImmersiveWatch.report(
+            bounds != null && bounds.left <= 1 && bounds.top <= 1 &&
+                bounds.width() >= metrics.widthPixels - 1 && bounds.height() >= metrics.heightPixels - 1
+        )
     }
 
     /**
