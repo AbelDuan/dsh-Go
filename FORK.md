@@ -244,6 +244,28 @@
 - **验证**：`logcat -d -b all | grep -E "DshPet|immersive"`。桌面应为 `immersive=false whole=true statusBar=true` 且只有 `overlay hidden: app on screen`；全屏播放器应出现 `immersive confirmed` 与 `overlay hidden: immersive`；退出全屏后 `overlay shown` 立刻回来。
   `settings put global policy_control immersive.full=*` 在 Android 17 已失效，别用它造沉浸场景。
 
+### 1.14 边缘光效整体变细、变淡
+
+- **症状**：光晕像镶了一条实线，太粗太实；折叠屏合起来时尤其明显。
+- **改动**（`phone/a11y/EdgeBeamModel.kt`）：所有宽度取原值 60%，峰值不透明度取原值 70%。
+
+  | 常量 | 原值 | 新值 | 含义 |
+  | --- | --- | --- | --- |
+  | `WIDTH_DP` | 14f | **8.4f** | 光带整体宽度 |
+  | `LINE_DP` | 3f | **1.8f** | 常亮细线 |
+  | `CORE_DP` | 2.5f | **1.5f** | 核心描边 |
+  | `BLOOM_DP` | 26f | **15.6f** | 外发光扩散 |
+  | `CORE_REST` | 0.9f | **0.63f** | 核心峰值不透明度 |
+  | `BLOOM_REST` | 0.6f | **0.42f** | 外发光峰值不透明度 |
+
+  `SQUARE_BELOW_DP` 故意留在 **14f**：它是 §1.7 的归零阈值，是对着**旧宽度**调出来的，
+  跟着 `WIDTH_DP` 一起缩会让外屏两个直角角重新归零失效（28 px 的角不再被当作方角）。
+- **同步**：`EdgeBeamModelTest` 的 `assertEquals(14f, EdgeBeamSpec.WIDTH_DP, 0f)` 改成 `8.4f`。
+  `theColourFadesInwardToNothingWithinTheReach` 仍成立 —— `reach` 由 `BLOOM / WIDTH` 的**比值**算出，
+  两者同比例缩小，比值不变；`DARK.rim` 变小反而更容易满足。
+- **验证**：外屏和内屏各看一眼边缘，应是"贴着边框的一点余光"而不是一条线；直角角（外屏左侧两个）
+  仍不缺块、不起折痕。装机 versionCode 11261748。
+
 ---
 
 ## 2. 上游更新后怎么合
