@@ -162,11 +162,11 @@ class PhoneA11yService : AccessibilityService() {
         } catch (_: Exception) {
             null
         }
+        val rect = Rect()
+        active?.getBoundsInScreen(rect)
         ImmersiveWatch.report(
-            active != null && active.getBoundsInScreen(Rect()).let { r ->
-                r.left <= 1 && r.top <= 1 &&
-                    r.width() >= metrics.widthPixels - 1 && r.height() >= metrics.heightPixels - 1
-            }
+            active != null && rect.left <= 1 && rect.top <= 1 &&
+                rect.width() >= metrics.widthPixels - 1 && rect.height() >= metrics.heightPixels - 1
         )
     }
 
