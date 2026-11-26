@@ -187,7 +187,7 @@ class PhoneA11yService : AccessibilityService() {
         for (w in list) {
             val r = Rect()
             w.getBoundsInScreen(r)
-            described.append(w.type).append(':').append(r.flattenToShortString()).append(' ')
+            described.append(w.type).append(':').append(r.toShortString()).append(' ')
             val screen = screens.minByOrNull { Math.abs(it.widthPixels - Math.max(r.width(), 1)) }
             when (w.type) {
                 AccessibilityWindowInfo.TYPE_SYSTEM -> {
