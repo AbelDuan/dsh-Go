@@ -226,6 +226,24 @@
 - **注意**：workflow 是 job 级 `working-directory: dsh-Go`，路径必须写成 `$(pwd)/tooling/keys/...`，用 `$GITHUB_WORKSPACE` 会拼错一层。
 - **验证**：`java -jar apksigner.jar verify --print-certs app.apk` 的 DN 应为 `CN=dsh-go`。
 
+### 1.13 全屏时让位，有结果或提问才回来
+
+- **症状**：全屏看视频、玩游戏时宠物挡在画面上；第一版判据改完又在桌面、微信里到处消失，只闪一下就没了。
+- **根因**：Android 15 起 **edge-to-edge 是默认**，任何应用窗口都从 `0,0` 铺到屏幕边缘，所以「窗口铺满整屏」根本不是全屏信号；另外无障碍窗口列表在界面切换的瞬间会短暂缺少系统栏，单次采样会误判。
+- **判据**（三条同时成立才算沉浸）：
+  1. 活动 `TYPE_APPLICATION` 窗口等于**某个显示器**的整屏 —— 用 `DisplayManager.displays` 各自 `getRealMetrics`，容差 1 px（折叠屏内外屏尺寸不同，两个都要比）。分屏、小窗、画中画因此被排除。
+  2. 没有覆盖顶部的 `TYPE_SYSTEM` 窗口（`top ≤ 1`、宽 = 屏宽、高 ≤ 屏高/8，即状态栏）。桌面 / 微信 / 小红书这类边到边但留着状态栏的界面因此被排除。
+  3. 没有 `TYPE_INPUT_METHOD` 窗口 —— 键盘在场说明在聊天，不是沉浸。
+- **去抖**：进沉浸要 350 ms 后二次确认才生效（打 `DshA11y: immersive confirmed`），退出立即生效（回来晚了比回来早了更烦）；`onDestroy` 取消待定 Runnable。
+- **通道**：`pet/ImmersiveWatch.kt`（进程内 `@Volatile`）→ `PetOverlay.evaluate()` 写 `machine.immersive` → `OverlayPolicy.kt` 的 `rule()`：
+  ```kotlin
+  val asking = bubble != null || holding          // 不包含 push.calling
+  if (immersive && !asking) return hidden("immersive", wakeAt = wakeAt)   // 放在 phoneTask 之前
+  ```
+  `push.calling` 不能算 `asking`：Dart 会一直保持 `attention/notification` 状态，那样宠物永远回不到后台。
+- **验证**：`logcat -d -b all | grep -E "DshPet|immersive"`。桌面应为 `immersive=false whole=true statusBar=true` 且只有 `overlay hidden: app on screen`；全屏播放器应出现 `immersive confirmed` 与 `overlay hidden: immersive`；退出全屏后 `overlay shown` 立刻回来。
+  `settings put global policy_control immersive.full=*` 在 Android 17 已失效，别用它造沉浸场景。
+
 ---
 
 ## 2. 上游更新后怎么合
@@ -256,7 +274,8 @@ git push origin custom
 | `pet/PetOverlay.kt` | 上游活动频繁（companion float、停靠、气泡都在这），本地改的是 `safeArea()`、`dockedRest()`、`onDragEnd` |
 | `pet/EdgeSnap.kt` / `EdgeSnapTest.kt` | 本地加了 `centerX` / `marginX` 参数、`sideFor` 重载、阈值 700 |
 | `phone/a11y/EdgeBeam*.kt` | 四角半径与角度场周长 |
-| `pet/OverlayPolicy.kt` | 本地加了 `locked` 字段与 `rule()` 里的锁屏分支 |
+| `pet/OverlayPolicy.kt` | 本地加了 `locked`、`immersive` 字段与 `rule()` 里的锁屏 / 全屏分支 |
+| `phone/a11y/PhoneA11yService.kt` | 本地加了 `refreshImmersive()` / `computeImmersive()`（含 350 ms 去抖）与键盘避让那一行调用 |
 
 **合并时的检查清单**
 
@@ -280,7 +299,12 @@ git push origin custom
 9. `runtime/direct/proot-dns.mjs` 里保留 `net.setDefaultAutoSelectFamilyAttemptTimeout(1500)`（§1.6），
    `runtime/lib/rtbuild.py` 的 `NODE_OPTIONS` 里保留 `--network-family-autoselection-attempt-timeout=1500`。
    上游若重写了这两个文件，按 §1.6 重新加一遍（一行 + 一处环境变量）。
-10. 合并后必然要能的编译验证已经内置：`dsh-go-ci` 的 sync 任务合并完成后会 dispatch `build.yml`，
+10. `PhoneA11yService` 里保留 `refreshImmersive()` / `computeImmersive()`（三条判据 + 350 ms 去抖 +
+    `onDestroy` 取消待定 Runnable），`pet/ImmersiveWatch.kt` 保留，`PetOverlay.evaluate()` 里保留
+    `machine.immersive = ImmersiveWatch.immersive`；`OverlayPolicy.kt` 里 `immersive` 字段与
+    `rule()` 中 `asking = bubble != null || holding` + `hidden("immersive")`（顺序在 `phoneTask` 之前，
+    `calling` 不算 `asking`）。详见 §1.13。
+11. 合并后必然要能的编译验证已经内置：`dsh-go-ci` 的 sync 任务合并完成后会 dispatch `build.yml`，
     编译在 Actions 里跑（Kotlin 单测不一定全跑，至少保证能编过）；只改文档不会触发，需要时手动
     Run workflow。
 
@@ -357,6 +381,7 @@ CI 报 `CompanionScreenBridge.kt:118 Too many arguments`。
 
 | 时间 | 上游 | 结果 |
 | --- | --- | --- |
+| 2026-11-26 | 无（本 fork 自身） | `1.13` 宠物全屏让位（edge-to-edge 下用「整屏 + 状态栏消失 + 无键盘」判沉浸，350 ms 去抖）；装机 `11261701` |
 | 2026-11-25 | 无（本 fork 自身） | `1.10` 手机壳层三项（中断自动解除 / 内置 root shell / shell 尊重「始终允许」）、`1.11` root 中继内置进 APK、`1.12` 固定签名入库；装机 `11260045`（1.4.0） |
 | 2026-11-25 | `d73c679c3`（175 提交 / 165 文件） | 合并：`OverlayPolicy.kt`、`PetOverlay.kt`、`PhoneA11yService.kt` 三方合并**无冲突**（本 fork 对这三个文件的改动与上游不在同一处）；`EdgeSnap.kt`、`PetView.kt`、`EdgeBeam*`、`composer_strip.dart` 上游未动，直接用 `custom` 版本。合并后新增 §1.8 键盘避让与 §1.9 锁屏不显示 |
 | 2026-11-24 | `db9452d9` | fork 建立，`custom` = 上游 + 修复提交（`ba37627` 起） |
@@ -366,3 +391,21 @@ CI 报 `CompanionScreenBridge.kt:118 Too many arguments`。
 
 `~/.dsh/patches/dsh-go/` 下留了补丁版和说明（`strip-no-crossfade.patch` 等），
 上游结构变化导致 merge 特别麻烦时可以直接 `git apply -3`。
+
+`~/.dsh/patches/dsh-go/README.md` 是本文档的同步副本，改完 FORK.md 记得覆盖它。
+签名材料在 `~/.dsh/keys/`（`dsh-go-release.keystore` + `dsh-go-release.txt`），
+另有一份带 `apksigner.jar` 的副本在 `/sdcard/Download/DSH-Go/backups/dsh-go-signing/`。
+
+出包与装机（本机 aarch64 proot 出不了 APK，必须走 `AbelDuan/dsh-go-ci`）：
+
+```sh
+# 1) 触发：Actions → build → Run workflow（或 push 到 custom 的 app/**、runtime/**、tooling/** 自动触发）
+# 2) 取 artifact（api.github.com 直连可用，curl 不存在则用 python urllib 流式下载）
+# 3) 校验签名，必须还是那把 key
+java -jar apksigner.jar verify --print-certs app-arm64-release.apk   # DN: CN=dsh-go
+# 4) 装机：system_server 读不了 /sdcard（fuse avc），先落到 /data/local/tmp
+cp app-arm64-release.apk /data/local/tmp/dshgo.apk && pm install -r -d /data/local/tmp/dshgo.apk
+```
+
+注意：`android_shell` 工具对带 APK 路径的 `pm install` 一律返回 `invalidArguments`，装机要走
+`~/.dsh/root-relay/rsh`。
