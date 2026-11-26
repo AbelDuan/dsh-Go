@@ -1,0 +1,6 @@
+{
+  "dockTasksWaiting": "{count} waiting",
+  "dockTasksRunning": "{count} running",
+  "dockTasksFinished": "{count} finished",
+  "dockTasksUntitled": "New chat"
+}

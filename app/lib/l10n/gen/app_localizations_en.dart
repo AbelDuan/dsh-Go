@@ -21141,6 +21141,24 @@ class L10nEn extends L10n {
   }
 
   @override
+  String dockTasksWaiting(int count) {
+    return '$count waiting';
+  }
+
+  @override
+  String dockTasksRunning(int count) {
+    return '$count running';
+  }
+
+  @override
+  String dockTasksFinished(int count) {
+    return '$count finished';
+  }
+
+  @override
+  String get dockTasksUntitled => 'New chat';
+
+  @override
   String get shellLoadingChats => 'Loading chats';
 
   @override

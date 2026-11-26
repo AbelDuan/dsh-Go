@@ -20004,6 +20004,24 @@ class L10nZh extends L10n {
   }
 
   @override
+  String dockTasksWaiting(int count) {
+    return '$count 个等你';
+  }
+
+  @override
+  String dockTasksRunning(int count) {
+    return '$count 个在跑';
+  }
+
+  @override
+  String dockTasksFinished(int count) {
+    return '$count 个跑完了';
+  }
+
+  @override
+  String get dockTasksUntitled => '新对话';
+
+  @override
   String get shellLoadingChats => '正在加载对话';
 
   @override

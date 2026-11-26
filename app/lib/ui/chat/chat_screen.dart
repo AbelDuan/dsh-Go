@@ -2177,6 +2177,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                         if (sessionId != null) ...[
                                           TodoDockSlot(sessionId: sessionId),
                                           GoalDockSlot(sessionId: sessionId),
+                                          TasksDockSlot(sessionId: sessionId),
                                           ActivityStripSlot(
                                             sessionId: sessionId,
                                             onTap: () => _openRunningTrajectory(sessionId),

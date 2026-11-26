@@ -1,0 +1,27 @@
+{
+  "dockTasksWaiting": "{count} 个等你",
+  "@dockTasksWaiting": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dockTasksRunning": "{count} 个在跑",
+  "@dockTasksRunning": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dockTasksFinished": "{count} 个跑完了",
+  "@dockTasksFinished": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dockTasksUntitled": "新对话"
+}

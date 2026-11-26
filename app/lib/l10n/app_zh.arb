@@ -11897,6 +11897,31 @@
   },
   "shellRenameChat": "重命名对话",
   "shellChatTitle": "对话标题",
+  "dockTasksWaiting": "{count} 个等你",
+  "@dockTasksWaiting": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dockTasksRunning": "{count} 个在跑",
+  "@dockTasksRunning": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dockTasksFinished": "{count} 个跑完了",
+  "@dockTasksFinished": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dockTasksUntitled": "新对话",
   "shellUnreadCount": "{count} 条未读",
   "@shellUnreadCount": {
     "placeholders": {

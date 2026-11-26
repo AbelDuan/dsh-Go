@@ -5,15 +5,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../l10n/l10n.dart';
 import '../../../state/chat_state.dart';
 import '../../../state/goal_dock_state.dart';
+import '../../../state/session_attention_state.dart';
+import '../../../state/sessions_state.dart';
 import 'dock_pill.dart';
 import 'goal_bar.dart';
 import 'goal_sheet.dart';
+import 'tasks_bar.dart';
 import 'todo_bar.dart';
 
-/// 输入条上方的停靠区:待办在上、目标在下(官方的顺序:Todo、Goal),再往下
-/// 是思考胶囊和输入条。两根条各自长出 / 收回;都没有时零高。
+/// 输入条上方的停靠区:待办在上、目标在中、别的对话的任务在下(官方的顺序
+/// Todo、Goal,再往下是本机加的一条),再往下是思考胶囊和输入条。每根条各自
+/// 长出 / 收回;都没有时零高。
 ///
 /// 放在输入条那一列里(和横幅、思考胶囊同一列),列表的下沿、底色遮罩
 /// 跟着整列的高度走,不需要另外的插槽。聊天页把两根条分开交给
@@ -33,6 +38,7 @@ class ChatDock extends StatelessWidget {
         children: [
           TodoDockSlot(sessionId: sessionId),
           GoalDockSlot(sessionId: sessionId),
+          TasksDockSlot(sessionId: sessionId),
         ],
       ),
     );
@@ -68,6 +74,32 @@ class GoalDockSlot extends ConsumerWidget {
     return DockSlot(
       key: const ValueKey('goal'),
       child: goal == null ? null : GoalBar(goal: goal, onTap: () => runGoalActions(context, ref, sessionId)),
+    );
+  }
+}
+
+/// The task bar's slot: 0 high when no other conversation needs you.
+class TasksDockSlot extends ConsumerWidget {
+  const TasksDockSlot({super.key, required this.sessionId});
+
+  /// The conversation on screen; it is left out of its own bar.
+  final String sessionId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sessions = ref.watch(sessionsProvider).value;
+    final tasks = sessions == null
+        ? const <DockTask>[]
+        : DockTasks.of(
+            sessions: sessions,
+            pending: ref.watch(pendingInteractionsProvider),
+            unread: ref.watch(unreadSessionIdsProvider),
+            current: ref.watch(currentSessionProvider) ?? sessionId,
+            untitled: context.l10n.dockTasksUntitled,
+          );
+    return DockSlot(
+      key: const ValueKey('tasks'),
+      child: tasks.isEmpty ? null : TasksBar(key: const ValueKey('tasks-bar'), tasks: tasks),
     );
   }
 }

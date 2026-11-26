@@ -36786,6 +36786,30 @@ abstract class L10n {
   /// **'{count} 条未读'**
   String shellUnreadCount(int count);
 
+  /// No description provided for @dockTasksWaiting.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} 个等你'**
+  String dockTasksWaiting(int count);
+
+  /// No description provided for @dockTasksRunning.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} 个在跑'**
+  String dockTasksRunning(int count);
+
+  /// No description provided for @dockTasksFinished.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} 个跑完了'**
+  String dockTasksFinished(int count);
+
+  /// No description provided for @dockTasksUntitled.
+  ///
+  /// In zh, this message translates to:
+  /// **'新对话'**
+  String get dockTasksUntitled;
+
   /// No description provided for @shellLoadingChats.
   ///
   /// In zh, this message translates to:
