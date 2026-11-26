@@ -48,7 +48,7 @@ class EdgeBeamModelTest {
         val reach = EdgeBeamSpec.REACH * w
         assertTrue(EdgeRim.hug(reach, EdgeRim.MAX_THICKNESS, w) * EdgeBeamSpec.DARK.rim * 255 < 0.5f)
         assertTrue(EdgeRim.hug(reach, 1f, EdgeBeamSpec.BLOOM_DP * density) * EdgeBeamSpec.DARK.bloom * 255 < 0.5f)
-        assertEquals(14f, EdgeBeamSpec.WIDTH_DP, 0f)
+        assertEquals(8.4f, EdgeBeamSpec.WIDTH_DP, 0f)
     }
 
     // ---- 光束：长而柔，连成一片地绕圈 -------------------------------------------------------------------

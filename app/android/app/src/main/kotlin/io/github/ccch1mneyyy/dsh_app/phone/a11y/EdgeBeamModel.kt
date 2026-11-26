@@ -17,17 +17,28 @@ import kotlin.math.sin
 
 /** The rim's numbers. */
 internal object EdgeBeamSpec {
-    /** How far in the colour reaches where the rim is of average thickness: Distortion waves' Edges default (rimWidth 14). */
-    const val WIDTH_DP = 14f
+    /**
+     * How far in the colour reaches where the rim is of average thickness. Distortion waves' Edges
+     * default was 14; the band read as too thick on a phone screen, so everything width-wise below
+     * is 60% of that (14 → 8.4), which thins it by about 40% while keeping the same falloff shape.
+     */
+    const val WIDTH_DP = 8.4f
 
     /** The still line the rim settles into while paused: the same falloff, this wide. */
-    const val LINE_DP = 3f
+    const val LINE_DP = 1.8f
 
     /** Border beam's stroke: a bright line right on the screen's edge, the same falloff, this wide. */
-    const val CORE_DP = 2.5f
+    const val CORE_DP = 1.5f
 
     /** Border beam's bloom: a wider glow, strongest under a beam, the same falloff, this wide. */
-    const val BLOOM_DP = 26f
+    const val BLOOM_DP = 15.6f
+
+    /**
+     * A display radius under this counts as square. Kept at the old rim width on purpose: the
+     * corner rules (§1.7) were settled against a 14 dp band, and they must not change just because
+     * the band got thinner.
+     */
+    const val SQUARE_BELOW_DP = 14f
 
     /**
      * Peak opacity on the screen's edge where a beam passes ([rim]; between the beams it is
@@ -35,8 +46,9 @@ internal object EdgeBeamSpec {
      */
     class Preset(val rim: Float, val line: Float, val core: Float, val bloom: Float)
 
-    val DARK = Preset(rim = 0.9f, line = 0.55f, core = 0.95f, bloom = 0.6f)
-    val LIGHT = Preset(rim = 0.75f, line = 0.45f, core = 0.85f, bloom = 0.5f)
+    // 70% of the original peaks: the band should read as a hint at the edge, not a painted line.
+    val DARK = Preset(rim = 0.63f, line = 0.38f, core = 0.66f, bloom = 0.42f)
+    val LIGHT = Preset(rim = 0.52f, line = 0.32f, core = 0.6f, bloom = 0.35f)
 
     /**
      * How uneven the band is: the lumps' thickness pulled towards 1 by this share. One band all
@@ -59,10 +71,10 @@ internal object EdgeBeamSpec {
     const val BEAM_GAIN = 0.35f
 
     /** The stroke between the beams, as a share of its peak: always there, brightest under a beam. */
-    const val CORE_REST = 0.75f
+    const val CORE_REST = 0.52f
 
     /** The bloom between the beams, as a share of its peak. */
-    const val BLOOM_REST = 0.6f
+    const val BLOOM_REST = 0.42f
 
     /** Dark screens: the stroke whitens this much under a beam (Border beam's spike). */
     const val CORE_WHITEN = 0.5f
@@ -110,7 +122,7 @@ internal object EdgeBeamSpec {
     fun cornersPx(reported: IntArray?, density: Float): FloatArray {
         val fallback = CORNER_FALLBACK_DP * density
         if (reported == null || reported.none { it > 0 }) return FloatArray(4) { fallback }
-        val square = WIDTH_DP * density
+        val square = SQUARE_BELOW_DP * density
         return FloatArray(4) {
             val radius = max(reported.getOrElse(it) { 0 }, 0).toFloat()
             if (radius < square) 0f else radius
