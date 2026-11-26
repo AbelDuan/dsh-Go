@@ -26,6 +26,7 @@ import io.github.ccch1mneyyy.dsh_app.phone.PhoneRegistry
 import io.github.ccch1mneyyy.dsh_app.phone.PhoneTasks
 import io.github.ccch1mneyyy.dsh_app.pet.ImmersiveWatch
 import android.view.accessibility.AccessibilityWindowInfo
+import android.graphics.Rect
 
 /**
  * DSH's accessibility service (same process as the app). While connected it is the MAIN
@@ -161,10 +162,11 @@ class PhoneA11yService : AccessibilityService() {
         } catch (_: Exception) {
             null
         }
-        val bounds = active?.boundsInScreen
         ImmersiveWatch.report(
-            bounds != null && bounds.left <= 1 && bounds.top <= 1 &&
-                bounds.width() >= metrics.widthPixels - 1 && bounds.height() >= metrics.heightPixels - 1
+            active != null && active.getBoundsInScreen(Rect()).let { r ->
+                r.left <= 1 && r.top <= 1 &&
+                    r.width() >= metrics.widthPixels - 1 && r.height() >= metrics.heightPixels - 1
+            }
         )
     }
 
