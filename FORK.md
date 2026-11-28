@@ -26,7 +26,7 @@ goldens 测试等）合进 `custom`（合并提交 `c2f0f9f82`，无冲突；`be
 
 ---
 
-## 0. 速查：15 条修复一张表
+## 0. 速查：16 条修复一张表
 
 后续合并/改代码时先看这张表，细节再翻 §1 对应小节。**「不变量」是合并时绝不能丢的东西。**
 
@@ -47,6 +47,7 @@ goldens 测试等）合进 `custom`（合并提交 `c2f0f9f82`，无冲突；`be
 | 1.13 | 全屏让位 | `PhoneA11yService.kt`、`pet/ImmersiveWatch.kt`、`PetOverlay.kt`、`OverlayPolicy.kt` | 三判据（整屏=某显示器 realMetrics / 无顶部状态栏窗口 / 无 IME）+ **350 ms 去抖**；`rule()` 里 `asking = bubble!=null \|\| holding`（**不含** `calling`），`hidden("immersive")` 放在 `phoneTask` 前 | 11261701 |
 | 1.14 | 光晕变细变淡 | `phone/a11y/EdgeBeamModel.kt`、`EdgeBeamModelTest.kt` | `WIDTH_DP 8.4f`、`LINE_DP 1.8f`、`CORE_DP 1.5f`、`BLOOM_DP 15.6f`、`DARK.rim 0.63f`、`DARK.bloom 0.42f`；测试断言同步 8.4f | 11261748 |
 | 1.15 | 输入框上方「任务条」 | `ui/chat/dock/tasks_bar.dart`（新）、`chat_dock.dart`、`chat_screen.dart` | `DockTasks.of` 三类（waiting/running/finished）按 kind 再按 `updatedAt` 排；排除当前会话；空时 0 高；`TasksDockSlot` 在 `ChatDock` 列与聊天页 `DockStack` cards 两处都要有 | 装机见 §1.15 |
+| 1.16 | 中断算未完成 + 全量列表 | `state/interrupted_turns_state.dart`（新）、`tasks_bar.dart`、`chat_dock.dart` | `outcomeFromEvents` 判 `interrupted`；中断归 `running` 但带 `stopped`；`rest()` 补全部对话、上限 40 不丢当前；当前行灰底 + 「当前」 | 见 §1.16 |
 
 ---
 
@@ -335,6 +336,29 @@ goldens 测试等）合进 `custom`（合并提交 `c2f0f9f82`，无冲突；`be
   ③行点击走 `openSessionInChat`（不要自己 push 路由，否则返回栈会叠页）。
 - **验证**：开两个对话让一个在跑（或等一次审批），回到另一个对话 —— 输入框上方出现「1 个在跑」；点条展开、
   点行切到那个对话；全部空闲时条消失。多个任务时右侧三段细条按 kind 分配宽度。
+
+### 1.16 任务条：引擎中断的回合算未完成，展开列表是全部对话
+
+- **症状 ①**：某对话在跑时引擎停了（重启 / 崩溃），那一轮被 `turn/end` 以 `interrupted` 关闭。
+  会话随后是空闲的：运行点熄了、也没产生新的未读，屏幕上什么都不说，于是一个没跑完的任务看起来像跑完了。
+- **症状 ②**：任务条展开只列"需要你"的三个类，想看"还有哪些对话"仍要开抽屉。
+- **改动**：
+  - `state/interrupted_turns_state.dart`（新）：`InterruptedTurns` 读**最近活跃的空闲对话**（≤8 个、7 天内）最近一轮的结局 ——
+    `projections` 取切点 → `history(throughSeq, maxMessages: 1)` → `outcomeFromEvents` → `reason.kind == 'interrupted'`。
+    读过且 `updatedAt` 未变的行不再读；同一候选清单最多每 45 s 复核一次；读取失败按"没有发言权"处理（不误判为中断）。
+  - `ui/chat/dock/tasks_bar.dart`：
+    - `DockTaskKind` 增 `idle`；`DockTask` 增 `stopped`（中断）与 `current`（屏幕上那个）；
+    - 分类顺序：`waiting` → `running`（真在跑）→ `running` + `stopped`（被引擎中断，**归入未完成**）→ `finished`（未读）→ `idle`；
+    - `DockTasks.rest(...)`：展开时补上**所有其他对话**（当前对话排最前，其余按最近活跃，上限 40，当前永不因上限被丢）；
+    - 摘要追加一段「N 个已中断」；行内状态字：中断 = 「已中断」+ 警告色，当前 = 「当前」+ 灰底 `onSurface 7%` + 加粗；
+    - 点条：只有一个可去、且没有别的可浏览时才直接跳，否则展开列表；点当前那行不做事。
+  - `ui/chat/dock/chat_dock.dart`：`TasksDockSlot` 把 `interruptedTurnsProvider` 与 `rest` 一起交给 `TasksBar`。
+  - l10n：新增 `dockTasksInterrupted`（`{count}`）、`dockTasksStopped`、`dockTasksCurrent`。
+- **合并注意**：`DockTaskKind` 是穷尽 switch 的枚举，加值后 `_Counts`、`DockTaskRow` 的 switch 都要有分支（编译期会提醒）。
+  `interrupted_turns_state.dart` 依赖 `notify/chat_alerts.dart` 的 `outcomeFromEvents` 与 `connection_state.dart` 的
+  `activeConnectionProvider`，上游动这两处时跟着改。
+- **验证**：抽屉里显示过「引擎重启过，本轮已中断」的对话，应出现在条里「N 个已中断」并带警告色；展开后
+  看得到全部对话，当前那条灰底标「当前」；点任一行切过去，中断项在该对话继续跑后消失（分类重建）。
 
 ---
 
