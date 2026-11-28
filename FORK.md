@@ -5,10 +5,10 @@
 本仓库只做一件事：**在上游之上叠一组本机（Xiaomi 折叠屏 2608BPX34C / Android 17 / HyperOS 4）的修复**，
 并且让上游更新时可以合并，而不是重新打补丁。
 
-| 分支 | 内容 | 当前（2026-11-28 10:56 核对） |
+| 分支 | 内容 | 当前（2026-11-28 12:10 核对） |
 | --- | --- | --- |
 | `main` | 上游镜像，只同步，不放任何本地修改 | `3b9fbbbb5`（= 上游 `release: 1.4.1`） |
-| `custom` | 默认分支 = `main` + 本 fork 的修复 | `c2f0f9f82`（含 1.1–1.15 全部修复） |
+| `custom` | 默认分支 = `main` + 本 fork 的修复 | `a4f9c0419`（含 1.1–1.16 全部修复，`ahead_by` 57） |
 
 **上游状态**：2026-11-27 12:49 已把上游 `3b9fbbbb5`（`release: 1.4.1`，含 turn-tps、tawcroot 兼容、
 goldens 测试等）合进 `custom`（合并提交 `c2f0f9f82`，无冲突；`behind_by` 0 / `ahead_by` 53）。
@@ -20,9 +20,9 @@ goldens 测试等）合进 `custom`（合并提交 `c2f0f9f82`，无冲突；`be
 > 大于 0 就先跑 sync（§2.1 第 1 步），合并干净之后再叠本地修复。
 > 不要在落后的基线上继续改——那样每次合并都要把同一处冲突解第二遍。
 
-**本机装机**：`versionCode 11272054` / `versionName 1.4.1`（2026-11-28 10:51 覆盖安装，数据保留），
+**本机装机**：`versionCode 11281137` / `versionName 1.4.1`（2026-11-28 12:04 覆盖安装，数据保留），
 证书 `CN=dsh-go`（SHA-256 `acd9272d…d49908`），APK 归档
-`/sdcard/Download/DSH-Go/builds/dsh-Go/11272054/`。
+`/sdcard/Download/DSH-Go/builds/dsh-Go/11281137/`。
 
 ---
 
