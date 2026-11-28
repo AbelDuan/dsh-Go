@@ -23,5 +23,14 @@
       }
     }
   },
-  "dockTasksUntitled": "新对话"
+  "dockTasksUntitled": "新对话",
+  "dockTasksInterrupted": "{count} 个已中断",
+  "@dockTasksInterrupted": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dockTasksStopped": "已中断"
 }

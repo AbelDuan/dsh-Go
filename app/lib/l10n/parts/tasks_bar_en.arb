@@ -2,5 +2,7 @@
   "dockTasksWaiting": "{count} waiting",
   "dockTasksRunning": "{count} running",
   "dockTasksFinished": "{count} finished",
-  "dockTasksUntitled": "New chat"
+  "dockTasksUntitled": "New chat",
+  "dockTasksInterrupted": "{count} interrupted",
+  "dockTasksStopped": "Interrupted"
 }

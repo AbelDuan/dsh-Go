@@ -11902,6 +11902,15 @@
   },
   "shellRenameChat": "重命名对话",
   "shellChatTitle": "对话标题",
+  "dockTasksInterrupted": "{count} 个已中断",
+  "@dockTasksInterrupted": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dockTasksStopped": "已中断",
   "dockTasksWaiting": "{count} 个等你",
   "@dockTasksWaiting": {
     "placeholders": {

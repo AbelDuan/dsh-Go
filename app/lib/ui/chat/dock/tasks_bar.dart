@@ -37,6 +37,7 @@ class DockTask {
     required this.kind,
     required this.updatedAt,
     this.pending,
+    this.stopped = false,
   });
 
   final String sessionId;
@@ -47,26 +48,33 @@ class DockTask {
   /// What it waits for, when [kind] is [DockTaskKind.waiting].
   final PendingKind? pending;
 
+  /// [DockTaskKind.running] but not running any more: the engine stopped and
+  /// closed the turn, so the work is unfinished rather than in flight.
+  final bool stopped;
+
   @override
   bool operator ==(Object other) =>
       other is DockTask &&
       other.sessionId == sessionId &&
       other.kind == kind &&
       other.title == title &&
-      other.pending == pending;
+      other.pending == pending &&
+      other.stopped == stopped;
 
   @override
-  int get hashCode => Object.hash(sessionId, kind, title, pending);
+  int get hashCode => Object.hash(sessionId, kind, title, pending, stopped);
 }
 
 /// The bar's content, derived from what the drawer already knows: the session
-/// rows, the pending interactions and the unread set. Pure, so the tests can
-/// pin the order without a device.
+/// rows, the pending interactions, the unread set, and the conversations whose
+/// last turn the engine's restart cut short (they are idle, so no dot says so).
+/// Pure, so the tests can pin the order without a device.
 abstract final class DockTasks {
   static List<DockTask> of({
     required List<SessionSummary> sessions,
     required Map<String, PendingKind> pending,
     required Set<String> unread,
+    required Set<String> interrupted,
     required String? current,
     required String untitled,
   }) {
@@ -75,10 +83,13 @@ abstract final class DockTasks {
       // The conversation on screen already shows its own state.
       if (session.sessionId == current) continue;
       final waiting = pending[session.sessionId];
+      // An interrupted turn is unfinished work, not a finished one: it belongs
+      // with the running conversations so it reads as something still owed.
+      final stopped = waiting == null && !session.running && interrupted.contains(session.sessionId);
       final DockTaskKind kind;
       if (waiting != null) {
         kind = DockTaskKind.waiting;
-      } else if (session.running) {
+      } else if (session.running || stopped) {
         kind = DockTaskKind.running;
       } else if (unread.contains(session.sessionId)) {
         kind = DockTaskKind.finished;
@@ -93,6 +104,7 @@ abstract final class DockTasks {
           kind: kind,
           updatedAt: session.updatedAt,
           pending: waiting,
+          stopped: stopped,
         ),
       );
     }
@@ -103,15 +115,17 @@ abstract final class DockTasks {
     return out;
   }
 
-  /// 「1 个等你 · 2 个在跑 · 3 个跑完了」, the empty parts left out.
+  /// 「1 个等你 · 2 个在跑 · 1 个已中断 · 3 个跑完了」, empty parts left out.
   static String summary(List<DockTask> tasks, L10n l10n) {
-    int count(DockTaskKind kind) => tasks.where((t) => t.kind == kind).length;
+    int count(DockTaskKind kind) => tasks.where((t) => t.kind == kind && !t.stopped).length;
     final waiting = count(DockTaskKind.waiting);
     final running = count(DockTaskKind.running);
+    final stopped = tasks.where((t) => t.stopped).length;
     final finished = count(DockTaskKind.finished);
     return [
       if (waiting > 0) l10n.dockTasksWaiting(waiting),
       if (running > 0) l10n.dockTasksRunning(running),
+      if (stopped > 0) l10n.dockTasksInterrupted(stopped),
       if (finished > 0) l10n.dockTasksFinished(finished),
     ].join(' · ');
   }
@@ -236,7 +250,8 @@ class _Counts extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final dsh = DshColors.of(context);
     final waiting = tasks.where((t) => t.kind == DockTaskKind.waiting).length;
-    final running = tasks.where((t) => t.kind == DockTaskKind.running).length;
+    final running = tasks.where((t) => t.kind == DockTaskKind.running && !t.stopped).length;
+    final stopped = tasks.where((t) => t.stopped).length;
     final finished = tasks.where((t) => t.kind == DockTaskKind.finished).length;
     const barWidth = 28.0;
     const barThickness = 3.0;
@@ -253,6 +268,7 @@ class _Counts extends StatelessWidget {
         children: [
           if (waiting > 0) segment(waiting, dsh.warning),
           if (running > 0) segment(running, colors.primary),
+          if (stopped > 0) segment(stopped, dsh.warning),
           if (finished > 0) segment(finished, dsh.textTertiary),
         ],
       ),
@@ -277,7 +293,9 @@ class DockTaskRow extends StatelessWidget {
     final dsh = DshColors.of(context);
     final (StatusTone tone, String state) = switch (task.kind) {
       DockTaskKind.waiting => (StatusTone.warn, task.pending?.label ?? l10n.shellUnread),
-      DockTaskKind.running => (StatusTone.busy, l10n.shellCurrentlyRunning),
+      DockTaskKind.running => task.stopped
+          ? (StatusTone.warn, l10n.dockTasksStopped)
+          : (StatusTone.busy, l10n.shellCurrentlyRunning),
       DockTaskKind.finished => (StatusTone.idle, l10n.shellUnread),
     };
     return Semantics(
@@ -312,7 +330,7 @@ class DockTaskRow extends StatelessWidget {
                   state,
                   style: DockText.detail(
                     context,
-                    color: task.kind == DockTaskKind.waiting ? dsh.warning : colors.onSurfaceVariant,
+                    color: task.kind == DockTaskKind.waiting || task.stopped ? dsh.warning : colors.onSurfaceVariant,
                   ),
                   maxLines: 1,
                   softWrap: false,

@@ -20037,6 +20037,14 @@ class L10nZh extends L10n {
   String get dockTasksUntitled => '新对话';
 
   @override
+  String dockTasksInterrupted(int count) {
+    return '$count 个已中断';
+  }
+
+  @override
+  String get dockTasksStopped => '已中断';
+
+  @override
   String get shellLoadingChats => '正在加载对话';
 
   @override

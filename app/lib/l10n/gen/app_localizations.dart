@@ -36840,6 +36840,18 @@ abstract class L10n {
   /// **'新对话'**
   String get dockTasksUntitled;
 
+  /// No description provided for @dockTasksInterrupted.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} 个已中断'**
+  String dockTasksInterrupted(int count);
+
+  /// No description provided for @dockTasksStopped.
+  ///
+  /// In zh, this message translates to:
+  /// **'已中断'**
+  String get dockTasksStopped;
+
   /// No description provided for @shellLoadingChats.
   ///
   /// In zh, this message translates to:

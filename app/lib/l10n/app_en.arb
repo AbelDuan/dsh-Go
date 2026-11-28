@@ -6116,6 +6116,8 @@
   "shellChatArchived": "Archived “{title}”",
   "shellRenameChat": "Rename chat",
   "shellChatTitle": "Chat title",
+  "dockTasksInterrupted": "{count} interrupted",
+  "dockTasksStopped": "Interrupted",
   "dockTasksWaiting": "{count} waiting",
   "dockTasksRunning": "{count} running",
   "dockTasksFinished": "{count} finished",

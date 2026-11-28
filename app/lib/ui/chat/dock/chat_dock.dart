@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/l10n.dart';
 import '../../../state/chat_state.dart';
 import '../../../state/goal_dock_state.dart';
+import '../../../state/interrupted_turns_state.dart';
 import '../../../state/session_attention_state.dart';
 import '../../../state/sessions_state.dart';
 import 'dock_pill.dart';
@@ -94,6 +95,7 @@ class TasksDockSlot extends ConsumerWidget {
             sessions: sessions,
             pending: ref.watch(pendingInteractionsProvider),
             unread: ref.watch(unreadSessionIdsProvider),
+            interrupted: ref.watch(interruptedTurnsProvider),
             current: ref.watch(currentSessionProvider) ?? sessionId,
             untitled: context.l10n.dockTasksUntitled,
           );
