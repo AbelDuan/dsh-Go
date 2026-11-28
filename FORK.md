@@ -5,26 +5,28 @@
 本仓库只做一件事：**在上游之上叠一组本机（Xiaomi 折叠屏 2608BPX34C / Android 17 / HyperOS 4）的修复**，
 并且让上游更新时可以合并，而不是重新打补丁。
 
-| 分支 | 内容 | 当前（2026-11-26 18:10 核对） |
+| 分支 | 内容 | 当前（2026-11-28 10:56 核对） |
 | --- | --- | --- |
-| `main` | 上游镜像，只同步，不放任何本地修改 | `5bb72e26e` |
-| `custom` | 默认分支 = `main` + 本 fork 的修复 | `6e55c0381`（含 1.1–1.14 全部修复） |
+| `main` | 上游镜像，只同步，不放任何本地修改 | `3b9fbbbb5`（= 上游 `release: 1.4.1`） |
+| `custom` | 默认分支 = `main` + 本 fork 的修复 | `c2f0f9f82`（含 1.1–1.15 全部修复） |
 
-**上游状态**：2026-11-26 18:09 已把上游 `dc2874fbb` 合进 `custom`（合并提交 `89023f5ba`，无冲突，
-上游带来 47 个文件、`custom` 领先上游 48 个提交、落后 0）。本文件之后若有只改 `FORK.md` 的提交，
-`custom` 会再往前走一格，`behind_by` 仍是 0。
+**上游状态**：2026-11-27 12:49 已把上游 `3b9fbbbb5`（`release: 1.4.1`，含 turn-tps、tawcroot 兼容、
+goldens 测试等）合进 `custom`（合并提交 `c2f0f9f82`，无冲突；`behind_by` 0 / `ahead_by` 53）。
+本文件之后若有只改 `FORK.md` 的提交，`custom` 会再往前走一格，`behind_by` 仍是 0。
+合并后逐条 grep 复核过 15 条不变量（含 §1.15 任务条），全部在。
 
 > **硬规则（用户 2026-11-26）**：**动任何代码之前先查上游**。先
 > `GET /repos/AbelDuan/dsh-Go/compare/<upstream-main>...<custom>` 看 `behind_by`，
 > 大于 0 就先跑 sync（§2.1 第 1 步），合并干净之后再叠本地修复。
 > 不要在落后的基线上继续改——那样每次合并都要把同一处冲突解第二遍。
 
-**本机装机**：`versionCode 11261748` / `versionName 1.4.0`，证书 `CN=dsh-go`
-（SHA-256 `acd9272d…d49908`），APK 归档 `/sdcard/Download/DSH-Go/builds/dsh-Go/11261748/`。
+**本机装机**：`versionCode 11272054` / `versionName 1.4.1`（2026-11-28 10:51 覆盖安装，数据保留），
+证书 `CN=dsh-go`（SHA-256 `acd9272d…d49908`），APK 归档
+`/sdcard/Download/DSH-Go/builds/dsh-Go/11272054/`。
 
 ---
 
-## 0. 速查：14 条修复一张表
+## 0. 速查：15 条修复一张表
 
 后续合并/改代码时先看这张表，细节再翻 §1 对应小节。**「不变量」是合并时绝不能丢的东西。**
 
@@ -474,6 +476,7 @@ CI 报 `CompanionScreenBridge.kt:118 Too many arguments`。
 
 | 时间 | 上游 | 结果 |
 | --- | --- | --- |
+| 2026-11-27 | `3b9fbbbb5`（`release: 1.4.1`） | 合并提交 `c2f0f9f82`，**无冲突**；合并后复核 15 条不变量全部在（含 §1.15 任务条：`tasks_bar.dart`、`chat_dock.dart` 的 `TasksDockSlot`、`chat_screen.dart` 的 cards 行、l10n 四个 key 与 gen 三文件）；2026-11-28 10:51 装机 `11272054` / 1.4.1 |
 | 2026-11-26 | `dc2874fbb`（7 提交 / 47 文件） | 合并提交 `89023f5ba`，**无冲突**；合并后按 §2 清单逐条 grep 复核：`composer_strip.dart` 仍是 1 个 `AnimatedSwitcher(`、`EdgeBeamModel.kt` 的 8.4/14/1.8 + `DARK.rim 0.63` 在、`EdgeBeam.kt` 的 `float4 radii` 与 `r < 0.5` 在、`computeImmersive`/`refreshImmersive`/`invalidateOverlayWindowContext` 在、`OverlayPolicy` 的 `immersive`/`"locked"`/`asking` 在、`proot-dns.mjs` 与 `rtbuild.py` 的 1500 在 |
 | 2026-11-26 | 无（本 fork 自身） | `1.14` 边缘光效整体变细变淡（宽度 60%、峰值 70%，归零阈值不动）；装机 `11261748` |
 | 2026-11-26 | 无（本 fork 自身） | `1.13` 宠物全屏让位（edge-to-edge 下用「整屏 + 状态栏消失 + 无键盘」判沉浸，350 ms 去抖）；装机 `11261701` |
