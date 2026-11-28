@@ -4,5 +4,6 @@
   "dockTasksFinished": "{count} finished",
   "dockTasksUntitled": "New chat",
   "dockTasksInterrupted": "{count} interrupted",
-  "dockTasksStopped": "Interrupted"
+  "dockTasksStopped": "Interrupted",
+  "dockTasksCurrent": "Current"
 }

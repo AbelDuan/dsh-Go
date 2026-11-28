@@ -6118,6 +6118,7 @@
   "shellChatTitle": "Chat title",
   "dockTasksInterrupted": "{count} interrupted",
   "dockTasksStopped": "Interrupted",
+  "dockTasksCurrent": "Current",
   "dockTasksWaiting": "{count} waiting",
   "dockTasksRunning": "{count} running",
   "dockTasksFinished": "{count} finished",

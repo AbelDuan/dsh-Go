@@ -26,7 +26,14 @@ import 'dock_pill.dart';
 /// Why a conversation is in the bar, strongest first: something that waits on
 /// you comes before work in flight, which comes before a conversation that
 /// finished while you were away.
-enum DockTaskKind { waiting, running, finished }
+enum DockTaskKind {
+  waiting,
+  running,
+  finished,
+
+  /// Nothing to report: the conversation is just there, in the full list.
+  idle,
+}
 
 /// One conversation in the bar.
 @immutable
@@ -38,6 +45,7 @@ class DockTask {
     required this.updatedAt,
     this.pending,
     this.stopped = false,
+    this.current = false,
   });
 
   final String sessionId;
@@ -52,6 +60,9 @@ class DockTask {
   /// closed the turn, so the work is unfinished rather than in flight.
   final bool stopped;
 
+  /// The conversation on screen: listed, but tinted and not a destination.
+  final bool current;
+
   @override
   bool operator ==(Object other) =>
       other is DockTask &&
@@ -59,10 +70,11 @@ class DockTask {
       other.kind == kind &&
       other.title == title &&
       other.pending == pending &&
-      other.stopped == stopped;
+      other.stopped == stopped &&
+      other.current == current;
 
   @override
-  int get hashCode => Object.hash(sessionId, kind, title, pending, stopped);
+  int get hashCode => Object.hash(sessionId, kind, title, pending, stopped, current);
 }
 
 /// The bar's content, derived from what the drawer already knows: the session
@@ -115,6 +127,45 @@ abstract final class DockTasks {
     return out;
   }
 
+  /// Every conversation the bar's list shows besides [shown]: the whole set,
+  /// not only the ones that want something, so the bar doubles as a switcher.
+  /// The one on screen comes first (it is tinted there), then by recency.
+  static List<DockTask> rest({
+    required List<SessionSummary> sessions,
+    required List<DockTask> shown,
+    required Set<String> unread,
+    required String? current,
+    required String untitled,
+    int limit = 40,
+  }) {
+    final taken = {for (final task in shown) task.sessionId};
+    final out = <DockTask>[];
+    var others = 0;
+    for (final session in sessions) {
+      if (taken.contains(session.sessionId)) continue;
+      final isCurrent = session.sessionId == current;
+      // The conversation on screen is never dropped by the cap, however old it is.
+      if (!isCurrent && others >= limit) continue;
+      if (!isCurrent) others++;
+      final title = session.title?.trim();
+      out.add(
+        DockTask(
+          sessionId: session.sessionId,
+          title: title == null || title.isEmpty ? untitled : title,
+          // Unread still says 未读 here; everything else is simply quiet.
+          kind: unread.contains(session.sessionId) ? DockTaskKind.finished : DockTaskKind.idle,
+          updatedAt: session.updatedAt,
+          current: isCurrent,
+        ),
+      );
+    }
+    out.sort((a, b) {
+      if (a.current != b.current) return a.current ? -1 : 1;
+      return b.updatedAt.compareTo(a.updatedAt);
+    });
+    return out;
+  }
+
   /// 「1 个等你 · 2 个在跑 · 1 个已中断 · 3 个跑完了」, empty parts left out.
   static String summary(List<DockTask> tasks, L10n l10n) {
     int count(DockTaskKind kind) => tasks.where((t) => t.kind == kind && !t.stopped).length;
@@ -134,9 +185,15 @@ abstract final class DockTasks {
 /// 「◫ 1 个等你 · 2 个在跑 ▰ ˄」; a tap on the bar opens the list, and with a
 /// single conversation in it, goes straight there.
 class TasksBar extends ConsumerStatefulWidget {
-  const TasksBar({super.key, required this.tasks, this.initiallyOpen = false});
+  const TasksBar({super.key, required this.tasks, this.rest = const [], this.initiallyOpen = false});
 
+  /// The conversations that want something (waiting, running, interrupted,
+  /// unread).
   final List<DockTask> tasks;
+
+  /// Every other conversation, so the open list also works as a switcher.
+  final List<DockTask> rest;
+
   final bool initiallyOpen;
 
   /// How tall the open list may get: at most this share of the screen.
@@ -167,7 +224,9 @@ class _TasksBarState extends ConsumerState<TasksBar> {
     final colors = theme.colorScheme;
     final dsh = DshColors.of(context);
     final tasks = widget.tasks;
-    final single = tasks.length == 1;
+    // One conversation to go to and nothing else to browse: the bar is a
+    // shortcut. Otherwise it opens the list, which now carries every chat.
+    final single = tasks.length == 1 && widget.rest.isEmpty;
     final summary = DockTasks.summary(tasks, l10n);
     final header = Semantics(
       button: true,
@@ -226,6 +285,18 @@ class _TasksBarState extends ConsumerState<TasksBar> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         for (final task in tasks) DockTaskRow(key: ValueKey(task.sessionId), task: task, onTap: () => _go(task)),
+                        if (widget.rest.isNotEmpty) ...[
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: DockMetrics.edge, vertical: 4),
+                            child: Divider(height: 1, thickness: 1, color: colors.onSurface.withValues(alpha: 0.08)),
+                          ),
+                          for (final task in widget.rest)
+                            DockTaskRow(
+                              key: ValueKey('rest-${task.sessionId}'),
+                              task: task,
+                              onTap: task.current ? null : () => _go(task),
+                            ),
+                        ],
                       ],
                     ),
                   ),
@@ -281,7 +352,9 @@ class DockTaskRow extends StatelessWidget {
   const DockTaskRow({super.key, required this.task, required this.onTap});
 
   final DockTask task;
-  final VoidCallback onTap;
+
+  /// Null for the conversation already on screen: it is a marker here.
+  final VoidCallback? onTap;
 
   static const height = 34.0;
 
@@ -297,45 +370,65 @@ class DockTaskRow extends StatelessWidget {
           ? (StatusTone.warn, l10n.dockTasksStopped)
           : (StatusTone.busy, l10n.shellCurrentlyRunning),
       DockTaskKind.finished => (StatusTone.idle, l10n.shellUnread),
+      DockTaskKind.idle => (StatusTone.idle, ''),
     };
+    // The conversation on screen is ticked with a quiet fill, the way the
+    // drawer marks its row: it is where you already are, not a destination.
+    final current = task.current;
+    final wording = current ? l10n.dockTasksCurrent : state;
     return Semantics(
-      button: true,
-      label: '${task.title}, $state',
+      button: !current,
+      selected: current,
+      label: current ? '${task.title}, $wording' : '${task.title}, $state',
       excludeSemantics: true,
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const RoundedSuperellipseBorder(borderRadius: DockMetrics.shape),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: height),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: DockMetrics.edge, vertical: 6),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: DockMetrics.glyph,
-                  child: Center(child: StatusDot(tone: tone, size: 7)),
-                ),
-                const SizedBox(width: DockMetrics.glyphGap),
-                Expanded(
-                  child: Text(
-                    task.title,
-                    style: DockText.title(context),
-                    maxLines: 1,
-                    softWrap: false,
-                    overflow: TextOverflow.ellipsis,
+      child: DecoratedBox(
+        decoration: current
+            ? ShapeDecoration(
+                color: colors.onSurface.withValues(alpha: 0.07),
+                shape: const RoundedSuperellipseBorder(borderRadius: DockMetrics.shape),
+              )
+            : const BoxDecoration(),
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const RoundedSuperellipseBorder(borderRadius: DockMetrics.shape),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: height),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: DockMetrics.edge, vertical: 6),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: DockMetrics.glyph,
+                    child: Center(child: StatusDot(tone: tone, size: 7)),
                   ),
-                ),
-                const SizedBox(width: DockMetrics.trailingGap),
-                Text(
-                  state,
-                  style: DockText.detail(
-                    context,
-                    color: task.kind == DockTaskKind.waiting || task.stopped ? dsh.warning : colors.onSurfaceVariant,
+                  const SizedBox(width: DockMetrics.glyphGap),
+                  Expanded(
+                    child: Text(
+                      task.title,
+                      style: current
+                          ? DockText.title(context).copyWith(fontWeight: FontWeight.w600)
+                          : DockText.title(context),
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                  maxLines: 1,
-                  softWrap: false,
-                ),
-              ],
+                  if (wording.isNotEmpty) ...[
+                    const SizedBox(width: DockMetrics.trailingGap),
+                    Text(
+                      wording,
+                      style: DockText.detail(
+                        context,
+                        color: task.kind == DockTaskKind.waiting || task.stopped || current
+                            ? dsh.warning
+                            : colors.onSurfaceVariant,
+                      ),
+                      maxLines: 1,
+                      softWrap: false,
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
         ),

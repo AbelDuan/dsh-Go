@@ -89,19 +89,27 @@ class TasksDockSlot extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final sessions = ref.watch(sessionsProvider).value;
+    final unread = ref.watch(unreadSessionIdsProvider);
+    final current = ref.watch(currentSessionProvider) ?? sessionId;
+    final untitled = context.l10n.dockTasksUntitled;
     final tasks = sessions == null
         ? const <DockTask>[]
         : DockTasks.of(
             sessions: sessions,
             pending: ref.watch(pendingInteractionsProvider),
-            unread: ref.watch(unreadSessionIdsProvider),
+            unread: unread,
             interrupted: ref.watch(interruptedTurnsProvider),
-            current: ref.watch(currentSessionProvider) ?? sessionId,
-            untitled: context.l10n.dockTasksUntitled,
+            current: current,
+            untitled: untitled,
           );
+    // The open list carries every other conversation too, so one tap is
+    // enough to move anywhere; the conversation on screen rides along, tinted.
+    final rest = sessions == null
+        ? const <DockTask>[]
+        : DockTasks.rest(sessions: sessions, shown: tasks, unread: unread, current: current, untitled: untitled);
     return DockSlot(
       key: const ValueKey('tasks'),
-      child: tasks.isEmpty ? null : TasksBar(key: const ValueKey('tasks-bar'), tasks: tasks),
+      child: tasks.isEmpty ? null : TasksBar(key: const ValueKey('tasks-bar'), tasks: tasks, rest: rest),
     );
   }
 }

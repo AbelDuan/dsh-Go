@@ -11911,6 +11911,7 @@
     }
   },
   "dockTasksStopped": "已中断",
+  "dockTasksCurrent": "当前",
   "dockTasksWaiting": "{count} 个等你",
   "@dockTasksWaiting": {
     "placeholders": {

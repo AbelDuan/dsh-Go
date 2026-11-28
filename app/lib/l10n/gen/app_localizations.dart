@@ -36852,6 +36852,12 @@ abstract class L10n {
   /// **'已中断'**
   String get dockTasksStopped;
 
+  /// No description provided for @dockTasksCurrent.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前'**
+  String get dockTasksCurrent;
+
   /// No description provided for @shellLoadingChats.
   ///
   /// In zh, this message translates to:
