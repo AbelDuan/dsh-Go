@@ -5,10 +5,10 @@
 本仓库只做一件事：**在上游之上叠一组本机（Xiaomi 折叠屏 2608BPX34C / Android 17 / HyperOS 4）的修复**，
 并且让上游更新时可以合并，而不是重新打补丁。
 
-| 分支 | 内容 | 当前（2026-11-28 12:10 核对） |
+| 分支 | 内容 | 当前（2026-11-28 13:32 核对） |
 | --- | --- | --- |
 | `main` | 上游镜像，只同步，不放任何本地修改 | `3b9fbbbb5`（= 上游 `release: 1.4.1`） |
-| `custom` | 默认分支 = `main` + 本 fork 的修复 | `a4f9c0419`（含 1.1–1.16 全部修复，`ahead_by` 57） |
+| `custom` | 默认分支 = `main` + 本 fork 的修复 | `dc2c5c986`（含 1.1–1.16 全部修复） |
 
 **上游状态**：2026-11-27 12:49 已把上游 `3b9fbbbb5`（`release: 1.4.1`，含 turn-tps、tawcroot 兼容、
 goldens 测试等）合进 `custom`（合并提交 `c2f0f9f82`，无冲突；`behind_by` 0 / `ahead_by` 53）。
@@ -20,9 +20,9 @@ goldens 测试等）合进 `custom`（合并提交 `c2f0f9f82`，无冲突；`be
 > 大于 0 就先跑 sync（§2.1 第 1 步），合并干净之后再叠本地修复。
 > 不要在落后的基线上继续改——那样每次合并都要把同一处冲突解第二遍。
 
-**本机装机**：`versionCode 11281137` / `versionName 1.4.1`（2026-11-28 12:04 覆盖安装，数据保留），
+**本机装机**：`versionCode 11281253` / `versionName 1.4.1`（2026-11-28 13:18 覆盖安装，数据保留），
 证书 `CN=dsh-go`（SHA-256 `acd9272d…d49908`），APK 归档
-`/sdcard/Download/DSH-Go/builds/dsh-Go/11281137/`。
+`/sdcard/Download/DSH-Go/builds/dsh-Go/11281253/`。
 
 ---
 
@@ -47,7 +47,7 @@ goldens 测试等）合进 `custom`（合并提交 `c2f0f9f82`，无冲突；`be
 | 1.13 | 全屏让位 | `PhoneA11yService.kt`、`pet/ImmersiveWatch.kt`、`PetOverlay.kt`、`OverlayPolicy.kt` | 三判据（整屏=某显示器 realMetrics / 无顶部状态栏窗口 / 无 IME）+ **350 ms 去抖**；`rule()` 里 `asking = bubble!=null \|\| holding`（**不含** `calling`），`hidden("immersive")` 放在 `phoneTask` 前 | 11261701 |
 | 1.14 | 光晕变细变淡 | `phone/a11y/EdgeBeamModel.kt`、`EdgeBeamModelTest.kt` | `WIDTH_DP 8.4f`、`LINE_DP 1.8f`、`CORE_DP 1.5f`、`BLOOM_DP 15.6f`、`DARK.rim 0.63f`、`DARK.bloom 0.42f`；测试断言同步 8.4f | 11261748 |
 | 1.15 | 输入框上方「任务条」 | `ui/chat/dock/tasks_bar.dart`（新）、`chat_dock.dart`、`chat_screen.dart` | `DockTasks.of` 三类（waiting/running/finished）按 kind 再按 `updatedAt` 排；排除当前会话；空时 0 高；`TasksDockSlot` 在 `ChatDock` 列与聊天页 `DockStack` cards 两处都要有 | 装机见 §1.15 |
-| 1.16 | 中断算未完成 + 全量列表 | `state/interrupted_turns_state.dart`（新）、`tasks_bar.dart`、`chat_dock.dart` | `outcomeFromEvents` 判 `interrupted`；中断归 `running` 但带 `stopped`；`rest()` 补全部对话、上限 40 不丢当前；当前行灰底 + 「当前」 | 见 §1.16 |
+| 1.16 | 中断算未完成 + 只列有活 + 顺序跟抽屉 | `state/interrupted_turns_state.dart`（新）、`tasks_bar.dart`、`chat_dock.dart` | `outcomeFromEvents` 判 `interrupted`；中断归 `running` 但带 `stopped`；当前对话有活就在原位、没活则追加到末尾且切走即消失；不按类型排序；当前行灰底 + 「当前」 | 见 §1.16 |
 
 ---
 
@@ -337,28 +337,31 @@ goldens 测试等）合进 `custom`（合并提交 `c2f0f9f82`，无冲突；`be
 - **验证**：开两个对话让一个在跑（或等一次审批），回到另一个对话 —— 输入框上方出现「1 个在跑」；点条展开、
   点行切到那个对话；全部空闲时条消失。多个任务时右侧三段细条按 kind 分配宽度。
 
-### 1.16 任务条：引擎中断的回合算未完成，展开列表是全部对话
+### 1.16 任务条：引擎中断算未完成，列表只列"有活"的对话，顺序跟抽屉走
 
 - **症状 ①**：某对话在跑时引擎停了（重启 / 崩溃），那一轮被 `turn/end` 以 `interrupted` 关闭。
   会话随后是空闲的：运行点熄了、也没产生新的未读，屏幕上什么都不说，于是一个没跑完的任务看起来像跑完了。
-- **症状 ②**：任务条展开只列"需要你"的三个类，想看"还有哪些对话"仍要开抽屉。
+- **症状 ②**：任务条展开后要么只列"需要你"的几项、看不到别的活，要么（第一版）把全部对话都倒出来，长得没法用。
+- **症状 ③**：按类型排序时，点一行会让它"跳"到最前面（因为它变成当前），位置在手指底下变，看着像列表自己乱动。
+- **现在的口径**：
+  - **只列有活的**：正在跑、被引擎中断（未完成）；待确认 / 未读留在抽屉里，不进这条。
+  - **顺序 = 抽屉的顺序**（`sessionsProvider` 本身按 `updatedAt` 降序），不再自己按类型排；点行只换"哪一行被标成当前"，不换位置。
+  - **当前对话**：本身有活就在它自然的位置上打灰底；**没有活**（普通空闲对话）时作为**唯一的可增删行**追加在**最下面** ——
+    切走之后它自动消失，其它行位置不变。
 - **改动**：
   - `state/interrupted_turns_state.dart`（新）：`InterruptedTurns` 读**最近活跃的空闲对话**（≤8 个、7 天内）最近一轮的结局 ——
     `projections` 取切点 → `history(throughSeq, maxMessages: 1)` → `outcomeFromEvents` → `reason.kind == 'interrupted'`。
     读过且 `updatedAt` 未变的行不再读；同一候选清单最多每 45 s 复核一次；读取失败按"没有发言权"处理（不误判为中断）。
-  - `ui/chat/dock/tasks_bar.dart`：
-    - `DockTaskKind` 增 `idle`；`DockTask` 增 `stopped`（中断）与 `current`（屏幕上那个）；
-    - 分类顺序：`waiting` → `running`（真在跑）→ `running` + `stopped`（被引擎中断，**归入未完成**）→ `finished`（未读）→ `idle`；
-    - `DockTasks.rest(...)`：展开时补上**所有其他对话**（当前对话排最前，其余按最近活跃，上限 40，当前永不因上限被丢）；
-    - 摘要追加一段「N 个已中断」；行内状态字：中断 = 「已中断」+ 警告色，当前 = 「当前」+ 灰底 `onSurface 7%` + 加粗；
-    - 点条：只有一个可去、且没有别的可浏览时才直接跳，否则展开列表；点当前那行不做事。
-  - `ui/chat/dock/chat_dock.dart`：`TasksDockSlot` 把 `interruptedTurnsProvider` 与 `rest` 一起交给 `TasksBar`。
-  - l10n：新增 `dockTasksInterrupted`（`{count}`）、`dockTasksStopped`、`dockTasksCurrent`。
-- **合并注意**：`DockTaskKind` 是穷尽 switch 的枚举，加值后 `_Counts`、`DockTaskRow` 的 switch 都要有分支（编译期会提醒）。
-  `interrupted_turns_state.dart` 依赖 `notify/chat_alerts.dart` 的 `outcomeFromEvents` 与 `connection_state.dart` 的
-  `activeConnectionProvider`，上游动这两处时跟着改。
-- **验证**：抽屉里显示过「引擎重启过，本轮已中断」的对话，应出现在条里「N 个已中断」并带警告色；展开后
-  看得到全部对话，当前那条灰底标「当前」；点任一行切过去，中断项在该对话继续跑后消失（分类重建）。
+  - `ui/chat/dock/tasks_bar.dart`：`DockTasks.of(...)` 单趟遍历 `sessions`（已是抽屉顺序）产出"有活的"行，
+    当前对话若没活则记为 `here`、循环结束后追加到末尾；`DockTasks.hasWork(...)` 决定这条要不要出现
+    （只有当前对话、没有活时不占高度）；`summary` 与计数细条只统计在跑与已中断；行 `onTap` 对当前行置空。
+  - `ui/chat/dock/chat_dock.dart`：`TasksDockSlot` 传 `interruptedTurnsProvider`、按 `hasWork` 决定出现。
+  - l10n：`dockTasksInterrupted`（`{count}`）、`dockTasksStopped`、`dockTasksCurrent`。
+- **合并注意**：`DockTaskKind` 仍是穷尽 switch 的枚举（`waiting` / `finished` 保留但不产出）；排序保持"不排序"是关键 ——
+  一旦恢复按 kind 排，症状 ③ 就回来了。`interrupted_turns_state.dart` 依赖 `notify/chat_alerts.dart` 的 `outcomeFromEvents`
+  与 `connection_state.dart` 的 `activeConnectionProvider`。
+- **验证**：抽屉里显示过「引擎重启过，本轮已中断」的对话出现在条里「N 个已中断」并带警告色；展开后行序与抽屉一致；
+  点一行切过去，只有灰底那行变了，其它行位置不动；当前对话若是普通空闲会话，它停在最下面，切走后消失。
 
 ---
 
