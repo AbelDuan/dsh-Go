@@ -89,26 +89,20 @@ class TasksDockSlot extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final sessions = ref.watch(sessionsProvider).value;
     final current = ref.watch(currentSessionProvider) ?? sessionId;
-    final untitled = context.l10n.dockTasksUntitled;
-    // Only work: running now, or left half done by an engine restart. Plus the
-    // conversation on screen, which is listed first and tinted.
+    // Rows come in the drawer's order: work (running, half done) and, when it
+    // has no work of its own, the conversation on screen at the bottom.
     final tasks = sessions == null
         ? const <DockTask>[]
         : DockTasks.of(
             sessions: sessions,
             interrupted: ref.watch(interruptedTurnsProvider),
             current: current,
-            untitled: untitled,
+            untitled: context.l10n.dockTasksUntitled,
           );
     return DockSlot(
       key: const ValueKey('tasks'),
-      child: tasks.isEmpty
-          ? null
-          : TasksBar(
-              key: const ValueKey('tasks-bar'),
-              tasks: tasks,
-              here: sessions == null ? null : DockTasks.here(sessions: sessions, current: current, untitled: untitled),
-            ),
+      // No work anywhere: nothing to switch to, so no bar.
+      child: DockTasks.hasWork(tasks) ? TasksBar(key: const ValueKey('tasks-bar'), tasks: tasks) : null,
     );
   }
 }
