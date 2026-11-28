@@ -1,11 +1,10 @@
 // The task bar above the composer (DSH's `conversation.input.dock`): the
-// conversations that are running right now, the ones that wait on you (an
-// approval, a plan review, a question), and the ones that moved on while you
-// were elsewhere. They are the same three markers the drawer puts at the end
-// of a row; here they sit in one bar, and a tap brings that conversation back.
+// conversations with work in them — running right now, or left half done when
+// the engine stopped — plus the one on screen, tinted, so the list says where
+// you are. Nothing else: it is a switcher for work, not a chat list.
 //
 // The bar follows the dock's rules: one row high while it has something to
-// say, zero high otherwise, expanding in place into the whole list.
+// say, zero high otherwise, expanding in place into the list.
 
 import 'package:dsh_client/dsh_client.dart';
 import 'package:flutter/foundation.dart';
@@ -23,15 +22,15 @@ import '../../theme/app_icons.dart';
 import '../../theme/theme.dart';
 import 'dock_pill.dart';
 
-/// Why a conversation is in the bar, strongest first: something that waits on
-/// you comes before work in flight, which comes before a conversation that
-/// finished while you were away.
+/// What a row says: work in flight (or cut short), or the conversation on
+/// screen. The drawer's other two markers — waiting on you, unread — stay in the
+/// drawer; this bar is about work.
 enum DockTaskKind {
   waiting,
   running,
   finished,
 
-  /// Nothing to report: the conversation is just there, in the full list.
+  /// The conversation on screen: listed, tinted, not a destination.
   idle,
 }
 
@@ -82,117 +81,85 @@ class DockTask {
 /// last turn the engine's restart cut short (they are idle, so no dot says so).
 /// Pure, so the tests can pin the order without a device.
 abstract final class DockTasks {
+  /// The conversations with work in them: running now, or left half done when
+  /// the engine stopped. Nothing else — the bar is not a chat list.
   static List<DockTask> of({
     required List<SessionSummary> sessions,
-    required Map<String, PendingKind> pending,
-    required Set<String> unread,
     required Set<String> interrupted,
     required String? current,
     required String untitled,
   }) {
     final out = <DockTask>[];
     for (final session in sessions) {
-      // The conversation on screen already shows its own state.
+      // The conversation on screen is listed separately ([here]).
       if (session.sessionId == current) continue;
-      final waiting = pending[session.sessionId];
-      // An interrupted turn is unfinished work, not a finished one: it belongs
-      // with the running conversations so it reads as something still owed.
-      final stopped = waiting == null && !session.running && interrupted.contains(session.sessionId);
-      final DockTaskKind kind;
-      if (waiting != null) {
-        kind = DockTaskKind.waiting;
-      } else if (session.running || stopped) {
-        kind = DockTaskKind.running;
-      } else if (unread.contains(session.sessionId)) {
-        kind = DockTaskKind.finished;
-      } else {
-        continue;
-      }
+      // An interrupted turn is unfinished work, not a finished one: it keeps
+      // its place among the running conversations.
+      final stopped = !session.running && interrupted.contains(session.sessionId);
+      if (!session.running && !stopped) continue;
       final title = session.title?.trim();
       out.add(
         DockTask(
           sessionId: session.sessionId,
           title: title == null || title.isEmpty ? untitled : title,
-          kind: kind,
+          kind: DockTaskKind.running,
           updatedAt: session.updatedAt,
-          pending: waiting,
           stopped: stopped,
         ),
       );
     }
     out.sort((a, b) {
-      final byKind = a.kind.index.compareTo(b.kind.index);
-      return byKind != 0 ? byKind : b.updatedAt.compareTo(a.updatedAt);
-    });
-    return out;
-  }
-
-  /// Every conversation the bar's list shows besides [shown]: the whole set,
-  /// not only the ones that want something, so the bar doubles as a switcher.
-  /// The one on screen comes first (it is tinted there), then by recency.
-  static List<DockTask> rest({
-    required List<SessionSummary> sessions,
-    required List<DockTask> shown,
-    required Set<String> unread,
-    required String? current,
-    required String untitled,
-    int limit = 40,
-  }) {
-    final taken = {for (final task in shown) task.sessionId};
-    final out = <DockTask>[];
-    var others = 0;
-    for (final session in sessions) {
-      if (taken.contains(session.sessionId)) continue;
-      final isCurrent = session.sessionId == current;
-      // The conversation on screen is never dropped by the cap, however old it is.
-      if (!isCurrent && others >= limit) continue;
-      if (!isCurrent) others++;
-      final title = session.title?.trim();
-      out.add(
-        DockTask(
-          sessionId: session.sessionId,
-          title: title == null || title.isEmpty ? untitled : title,
-          // Unread still says 未读 here; everything else is simply quiet.
-          kind: unread.contains(session.sessionId) ? DockTaskKind.finished : DockTaskKind.idle,
-          updatedAt: session.updatedAt,
-          current: isCurrent,
-        ),
-      );
-    }
-    out.sort((a, b) {
-      if (a.current != b.current) return a.current ? -1 : 1;
+      // Work in flight first, then what an engine restart left behind.
+      if (a.stopped != b.stopped) return a.stopped ? 1 : -1;
       return b.updatedAt.compareTo(a.updatedAt);
     });
     return out;
   }
 
-  /// 「1 个等你 · 2 个在跑 · 1 个已中断 · 3 个跑完了」, empty parts left out.
+  /// The conversation on screen, as the list's first row: tinted, not a
+  /// destination. Null when it is not in the list yet (a brand-new chat).
+  static DockTask? here({
+    required List<SessionSummary> sessions,
+    required String? current,
+    required String untitled,
+  }) {
+    if (current == null) return null;
+    for (final session in sessions) {
+      if (session.sessionId != current) continue;
+      final title = session.title?.trim();
+      return DockTask(
+        sessionId: session.sessionId,
+        title: title == null || title.isEmpty ? untitled : title,
+        kind: DockTaskKind.idle,
+        updatedAt: session.updatedAt,
+        current: true,
+      );
+    }
+    return null;
+  }
+
+  /// 「2 个在跑 · 1 个已中断」, empty parts left out.
   static String summary(List<DockTask> tasks, L10n l10n) {
-    int count(DockTaskKind kind) => tasks.where((t) => t.kind == kind && !t.stopped).length;
-    final waiting = count(DockTaskKind.waiting);
-    final running = count(DockTaskKind.running);
+    final running = tasks.where((t) => !t.stopped).length;
     final stopped = tasks.where((t) => t.stopped).length;
-    final finished = count(DockTaskKind.finished);
     return [
-      if (waiting > 0) l10n.dockTasksWaiting(waiting),
       if (running > 0) l10n.dockTasksRunning(running),
       if (stopped > 0) l10n.dockTasksInterrupted(stopped),
-      if (finished > 0) l10n.dockTasksFinished(finished),
     ].join(' · ');
   }
 }
 
-/// 「◫ 1 个等你 · 2 个在跑 ▰ ˄」; a tap on the bar opens the list, and with a
-/// single conversation in it, goes straight there.
+/// 「◫ 2 个在跑 ▰ ˄」; a tap on the bar opens the list, and with a single
+/// conversation in it, goes straight there.
 class TasksBar extends ConsumerStatefulWidget {
-  const TasksBar({super.key, required this.tasks, this.rest = const [], this.initiallyOpen = false});
+  const TasksBar({super.key, required this.tasks, this.here, this.initiallyOpen = false});
 
-  /// The conversations that want something (waiting, running, interrupted,
-  /// unread).
+  /// The conversations with work in them: running, or half done.
   final List<DockTask> tasks;
 
-  /// Every other conversation, so the open list also works as a switcher.
-  final List<DockTask> rest;
+  /// The conversation on screen, listed first and tinted; null before it is in
+  /// the list.
+  final DockTask? here;
 
   final bool initiallyOpen;
 
@@ -224,9 +191,8 @@ class _TasksBarState extends ConsumerState<TasksBar> {
     final colors = theme.colorScheme;
     final dsh = DshColors.of(context);
     final tasks = widget.tasks;
-    // One conversation to go to and nothing else to browse: the bar is a
-    // shortcut. Otherwise it opens the list, which now carries every chat.
-    final single = tasks.length == 1 && widget.rest.isEmpty;
+    // One conversation to go to: the bar is a shortcut to it.
+    final single = tasks.length == 1;
     final summary = DockTasks.summary(tasks, l10n);
     final header = Semantics(
       button: true,
@@ -284,19 +250,9 @@ class _TasksBarState extends ConsumerState<TasksBar> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        if (widget.here != null)
+                          DockTaskRow(key: ValueKey('here-${widget.here!.sessionId}'), task: widget.here!, onTap: null),
                         for (final task in tasks) DockTaskRow(key: ValueKey(task.sessionId), task: task, onTap: () => _go(task)),
-                        if (widget.rest.isNotEmpty) ...[
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: DockMetrics.edge, vertical: 4),
-                            child: Divider(height: 1, thickness: 1, color: colors.onSurface.withValues(alpha: 0.08)),
-                          ),
-                          for (final task in widget.rest)
-                            DockTaskRow(
-                              key: ValueKey('rest-${task.sessionId}'),
-                              task: task,
-                              onTap: task.current ? null : () => _go(task),
-                            ),
-                        ],
                       ],
                     ),
                   ),
@@ -320,10 +276,8 @@ class _Counts extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final dsh = DshColors.of(context);
-    final waiting = tasks.where((t) => t.kind == DockTaskKind.waiting).length;
-    final running = tasks.where((t) => t.kind == DockTaskKind.running && !t.stopped).length;
+    final running = tasks.where((t) => !t.stopped).length;
     final stopped = tasks.where((t) => t.stopped).length;
-    final finished = tasks.where((t) => t.kind == DockTaskKind.finished).length;
     const barWidth = 28.0;
     const barThickness = 3.0;
     Widget segment(int value, Color color) => Expanded(
@@ -337,10 +291,8 @@ class _Counts extends StatelessWidget {
       width: barWidth,
       child: Row(
         children: [
-          if (waiting > 0) segment(waiting, dsh.warning),
           if (running > 0) segment(running, colors.primary),
           if (stopped > 0) segment(stopped, dsh.warning),
-          if (finished > 0) segment(finished, dsh.textTertiary),
         ],
       ),
     );

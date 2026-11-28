@@ -9,7 +9,6 @@ import '../../../l10n/l10n.dart';
 import '../../../state/chat_state.dart';
 import '../../../state/goal_dock_state.dart';
 import '../../../state/interrupted_turns_state.dart';
-import '../../../state/session_attention_state.dart';
 import '../../../state/sessions_state.dart';
 import 'dock_pill.dart';
 import 'goal_bar.dart';
@@ -89,27 +88,28 @@ class TasksDockSlot extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final sessions = ref.watch(sessionsProvider).value;
-    final unread = ref.watch(unreadSessionIdsProvider);
     final current = ref.watch(currentSessionProvider) ?? sessionId;
     final untitled = context.l10n.dockTasksUntitled;
+    // Only work: running now, or left half done by an engine restart. Plus the
+    // conversation on screen, which is listed first and tinted.
     final tasks = sessions == null
         ? const <DockTask>[]
         : DockTasks.of(
             sessions: sessions,
-            pending: ref.watch(pendingInteractionsProvider),
-            unread: unread,
             interrupted: ref.watch(interruptedTurnsProvider),
             current: current,
             untitled: untitled,
           );
-    // The open list carries every other conversation too, so one tap is
-    // enough to move anywhere; the conversation on screen rides along, tinted.
-    final rest = sessions == null
-        ? const <DockTask>[]
-        : DockTasks.rest(sessions: sessions, shown: tasks, unread: unread, current: current, untitled: untitled);
     return DockSlot(
       key: const ValueKey('tasks'),
-      child: tasks.isEmpty ? null : TasksBar(key: const ValueKey('tasks-bar'), tasks: tasks, rest: rest),
+      child: tasks.isEmpty
+          ? null
+          : TasksBar(
+              key: const ValueKey('tasks-bar'),
+              tasks: tasks,
+              here: sessions == null ? null : DockTasks.here(sessions: sessions, current: current, untitled: untitled),
+            ),
     );
   }
 }
+
